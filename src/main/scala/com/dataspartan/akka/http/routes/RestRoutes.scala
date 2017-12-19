@@ -1,10 +1,11 @@
 package com.dataspartan.akka.http.routes
 
-import akka.actor.ActorSystem
+import akka.actor.{ActorRef, ActorSystem}
 import akka.event.Logging
 import akka.util.Timeout
 import com.dataspartan.akka.http.RestJsonSupport
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 trait RestRoutes extends RestJsonSupport {
@@ -14,9 +15,8 @@ trait RestRoutes extends RestJsonSupport {
 
   lazy val log = Logging(system, classOf[RestRoutes])
 
-//  // other dependencies that masterProxy use
-//  def masterProxy: ActorRef
+
 
   // Required by the `ask` (?) method below
-  implicit lazy val timeout = Timeout(5.seconds) // usually we'd obtain the timeout from the system's configuration
+  implicit lazy val timeout: Timeout = system.settings.config.getDuration("http-rest-server.backend-timeout ").getSeconds.seconds
 }
