@@ -8,15 +8,11 @@ import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 
 object UserRepository {
-  final case object GetUsers
-  final case class GetUser(userId: String)
-  final case class GetAddress(userId: String)
-
   def props: Props = Props[UserRepository]
 }
 
 class UserRepository extends Actor with ActorLogging {
-  import UserRepository._
+  import QueryProtocol._
   import com.dataspartan.akka.backend.entities.UserEntities._
 
   var users = Set.empty[User]
@@ -27,14 +23,27 @@ class UserRepository extends Actor with ActorLogging {
     Address("number", s"street $userId", "town", "county", "postcode")
   }
 
+  override def preStart(): Unit = {
+    log.info(s"Starting ${context.self.path}")
+  }
+
+  override def preRestart(reason: Throwable, message: Option[Any]): Unit =  {
+    log.info(s"Restarting ${context.self.path}")
+  }
+
+
   def receive: Receive = {
     case GetUsers =>
+      log.info(context.self.toString())
       sender() ! Users(users.toSeq)
     case GetUser(userId) =>
+      log.info(context.self.toString())
       sender() ! users.find(_.userId == userId)
     case GetAddress(userId) =>
+      log.info(context.self.toString())
       sender() ! Option(getAddress(userId))
     case UpdateAddress(userId, _) =>
+      log.info(context.self.toString())
       sender() ! ActionResult(s"Address updated for User $userId")
   }
 }

@@ -1,52 +1,53 @@
 package com.dataspartan.akka.http
 
-import akka.actor.{ActorRef, ActorSelection, ActorSystem}
+import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.Http.ServerBinding
 import akka.http.scaladsl.server.{Route, RouteConcatenation}
 import akka.stream.ActorMaterializer
+import akka.util.Timeout
 import com.dataspartan.akka.backend.comand.master.BackendMasterSingleton
-import com.dataspartan.akka.backend.query.{InsuranceQuotingService, UserRepository}
+import com.dataspartan.akka.backend.query.master.QueryMasterSingleton
 import com.dataspartan.akka.http.routes.{InsuranceManagementRoutes, UserManagementRoutes}
-
+import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.io.StdIn
 
-//#main-class
-object HttpRestServer extends App with UserManagementRoutes with InsuranceManagementRoutes {
+object HttpRestServer extends UserManagementRoutes with InsuranceManagementRoutes {
+
   implicit val system: ActorSystem = ActorSystem("ClusterSystem")
   implicit val materializer: ActorMaterializer = ActorMaterializer()
 
   // Needed for the Future and its methods flatMap/onComplete in the end
   implicit val executionContext: ExecutionContext = system.dispatcher
 
-  val userRepository: ActorRef = system.actorOf(UserRepository.props)
+  val queryMasterProxy: ActorRef = system.actorOf(
+    QueryMasterSingleton.proxyProps(system), name = "queryMasterProxy")
 
-  val insuranceQuotingService: ActorRef = system.actorOf(InsuranceQuotingService.props)
+  val commandMasterProxy: ActorRef = system.actorOf(
+    BackendMasterSingleton.proxyProps(system), name = "commandMasterProxy")
 
-  val backendMasterProxy: ActorRef = system.actorOf(
-      BackendMasterSingleton.proxyProps(system), name = "backendMasterProxy")
-
-  //#main-class
   lazy val routes: Route = RouteConcatenation.concat(userManagementRoutes, insuranceManagementRoutes)
-  //#main-class
 
-  println(s"Setted backend timeout: $timeout")
+  lazy val host: String = system.settings.config.getString("http-rest-server.http-host")
+  lazy val port: Int = system.settings.config.getInt("http-rest-server.http-port")
+  lazy val timeout: Timeout = system.settings.config.getDuration("http-rest-server.timeout").getSeconds.seconds
 
-  //#http-server
-  val serverBindingFuture: Future[ServerBinding] = Http().bindAndHandle(routes, "localhost", 8080)
+  def run():Unit = {
 
-  println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+    val serverBindingFuture: Future[ServerBinding] = Http().bindAndHandle(routes, host, port)
 
-  StdIn.readLine()
+    println(s"Server online at http://$host:$port/")
+    println(s"Setted backend timeout: $timeout")
+    println(s"Press RETURN to stop...")
 
-  serverBindingFuture
-    .flatMap(_.unbind())
-    .onComplete { done =>
-      done.failed.map { ex => log.error(ex, "Failed unbinding") }
-      system.terminate()
-    }
-  //#http-server
-  //#main-class
+    StdIn.readLine()
+
+    serverBindingFuture
+      .flatMap(_.unbind())
+      .onComplete { done =>
+        done.failed.map { ex => log.error(ex, "Failed unbinding") }
+        system.terminate()
+      }
+  }
 }
-//#main-class

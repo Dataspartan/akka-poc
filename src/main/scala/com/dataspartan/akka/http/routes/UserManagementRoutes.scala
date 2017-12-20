@@ -1,6 +1,5 @@
 package com.dataspartan.akka.http.routes
 
-import akka.actor.ActorRef
 import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
@@ -8,7 +7,7 @@ import akka.http.scaladsl.server.directives.MethodDirectives.{get, put}
 import akka.http.scaladsl.server.directives.PathDirectives.path
 import akka.http.scaladsl.server.directives.RouteDirectives.complete
 import com.dataspartan.akka.backend.entities.UserEntities.{User, Users}
-import com.dataspartan.akka.backend.query.UserRepository.{GetAddress, GetUser, GetUsers}
+import com.dataspartan.akka.backend.query.QueryProtocol.{GetAddress, GetUser, GetUsers}
 import akka.pattern.ask
 import com.dataspartan.akka.backend.comand.master.CommandProtocol.UpdateAddress
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
@@ -17,10 +16,6 @@ import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import scala.concurrent.Future
 
 trait UserManagementRoutes extends RestRoutes {
-
-  def userRepository: ActorRef
-
-  def backendMasterProxy: ActorRef
 
   //#all-routes
   lazy val userManagementRoutes: Route =
@@ -39,7 +34,7 @@ trait UserManagementRoutes extends RestRoutes {
       get {
         log.info("get All users")
         val users: Future[Users] =
-          (userRepository ? GetUsers).mapTo[Users]
+          (queryMasterProxy ? GetUsers).mapTo[Users]
         complete(users)
       }
     )
@@ -49,7 +44,7 @@ trait UserManagementRoutes extends RestRoutes {
       get {
         log.info(s"get user info - $userId")
         val maybeUser: Future[Option[User]] =
-          (userRepository ? GetUser(userId)).mapTo[Option[User]]
+          (queryMasterProxy ? GetUser(userId)).mapTo[Option[User]]
         rejectEmptyResponse {
           complete(maybeUser)
         }
@@ -61,7 +56,7 @@ trait UserManagementRoutes extends RestRoutes {
       get {
         log.info(s"get address for user - $userId")
         val maybeAddress: Future[Option[Address]] =
-          (userRepository ? GetAddress(userId)).mapTo[Option[Address]]
+          (queryMasterProxy ? GetAddress(userId)).mapTo[Option[Address]]
         rejectEmptyResponse {
           complete(maybeAddress)
         }
@@ -71,7 +66,7 @@ trait UserManagementRoutes extends RestRoutes {
         entity(as[Address]) { address =>
           log.info(s"update address for user - $userId")
           val addressUpdated: Future[ActionResult] =
-            (backendMasterProxy ? UpdateAddress(userId, address)).mapTo[ActionResult]
+            (queryMasterProxy ? UpdateAddress(userId, address)).mapTo[ActionResult]
           onSuccess(addressUpdated) { result =>
             log.info(s"Address updated user [$userId]: ${result.description}")
             complete(StatusCodes.Created, result)

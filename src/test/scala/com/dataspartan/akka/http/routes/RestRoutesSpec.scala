@@ -7,24 +7,27 @@ import akka.http.scaladsl.server.RouteConcatenation
 import akka.http.scaladsl.testkit.ScalatestRouteTest
 import akka.testkit.TestActor.AutoPilot
 import akka.testkit.{TestActor, TestProbe}
+import akka.util.Timeout
 import com.dataspartan.akka.backend.comand.master.CommandProtocol.UpdateAddress
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote
 import com.dataspartan.akka.backend.entities.UserEntities.{User, Users}
-import com.dataspartan.akka.backend.query.InsuranceQuotingService.GetInsuranceQuote
-import com.dataspartan.akka.backend.query.UserRepository.{GetAddress, GetUser, GetUsers}
+import com.dataspartan.akka.backend.query.QueryProtocol.GetInsuranceQuote
+import com.dataspartan.akka.backend.query.QueryProtocol.{GetAddress, GetUser, GetUsers}
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{Matchers, WordSpec}
+import scala.concurrent.duration._
+
 import scala.language.postfixOps
 
 class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with ScalatestRouteTest
   with UserManagementRoutes with InsuranceManagementRoutes {
 
   val testProbe = TestProbe()
-  override val userRepository: ActorRef = testProbe.ref
-  override val insuranceQuotingService: ActorRef = testProbe.ref
-  override val backendMasterProxy: ActorRef = testProbe.ref
+  override val queryMasterProxy: ActorRef = testProbe.ref
+  override val commandMasterProxy: ActorRef = testProbe.ref
+  override val timeout: Timeout = 5 seconds
 
   private def getUsers(n: Int): Users = {
     var users: List[User] = List.empty[User]
