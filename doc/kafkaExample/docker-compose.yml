@@ -1,0 +1,197 @@
+---
+version: '2'
+services:
+  zookeeper1:
+    image: confluentinc/cp-zookeeper:3.3.1
+    hostname: zookeeper1
+    ports:
+      - '22181:22181'
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 22181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeper1:22888:23888;zookeeper2:32888:33888;zookeeper3:42888:43888
+    volumes:
+      - ./dockerdata/1.0/zookeeper_1/zk-data:/var/lib/zookeeper/data
+      - ./dockerdata/1.0/zookeeper_1/zk-txn-logs:/var/lib/zookeeper/log
+
+  zookeeper2:
+    image: confluentinc/cp-zookeeper:3.3.1
+    hostname: zookeeper2
+    ports:
+      - '32181:32181'
+    environment:
+      ZOOKEEPER_SERVER_ID: 2
+      ZOOKEEPER_CLIENT_PORT: 32181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeper1:22888:23888;zookeeper2:32888:33888;zookeeper3:42888:43888
+    volumes:
+      - ./dockerdata/1.0/zookeeper_2/zk-data:/var/lib/zookeeper/data
+      - ./dockerdata/1.0/zookeeper_2/zk-txn-logs:/var/lib/zookeeper/log
+
+  zookeeper3:
+    image: confluentinc/cp-zookeeper:3.3.1
+    hostname: zookeeper3
+    ports:
+      - '42181:42181'
+    environment:
+      ZOOKEEPER_SERVER_ID: 3
+      ZOOKEEPER_CLIENT_PORT: 42181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeper1:22888:23888;zookeeper2:32888:33888;zookeeper3:42888:43888
+    volumes:
+      - ./dockerdata/1.0/zookeeper_3/zk-data:/var/lib/zookeeper/data
+      - ./dockerdata/1.0/zookeeper_3/zk-txn-logs:/var/lib/zookeeper/log
+
+  kafka1:
+    image: confluentinc/cp-kafka:3.3.1
+    hostname: kafka1
+    ports:
+      - '19092:19092'
+    links:
+     - "zookeeper1"
+     - "zookeeper2"
+     - "zookeeper3"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:22181,zookeeper2:32181,zookeeper3:42181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:19092
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - /dockerdata/1.0/kafka_1/kakfa-data:/var/lib/kafka/data
+
+  kafka2:
+    image: confluentinc/cp-kafka:3.3.1
+    hostname: kafka2
+    ports:
+      - '29092:29092'
+    links:
+     - "zookeeper1"
+     - "zookeeper2"
+     - "zookeeper3"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:22181,zookeeper2:32181,zookeeper3:42181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:29092
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - /dockerdata/1.0/kafka_2/kakfa-data:/var/lib/kafka/data
+
+  kafka3:
+    image: confluentinc/cp-kafka:3.3.1
+    hostname: kafka3
+    ports:
+      - '39092:39092'
+    links:
+     - "zookeeper1"
+     - "zookeeper2"
+     - "zookeeper3"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:22181,zookeeper2:32181,zookeeper3:42181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:39092
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - /dockerdata/1.0/kafka_3/kakfa-data:/var/lib/kafka/data
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:3.3.1
+    hostname: schema-registry
+    links:
+     - "zookeeper1"
+     - "zookeeper2"
+     - "zookeeper3"
+     - "kafka1"
+     - "kafka2"
+     - "kafka3"
+    ports:
+      - '8081:8081'
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: zookeeper1:22181,zookeeper2:32181,zookeeper3:42181
+
+  connect:
+    image: confluentinc/cp-kafka-connect:3.3.1
+    links:
+     - "kafka1"
+     - "kafka2"
+     - "kafka3"
+     - "schema-registry"
+    ports:
+      - '28082:28082'
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka1:19092,kafka2:29092,kafka3:39092
+      CONNECT_REST_PORT: 28082
+      CONNECT_GROUP_ID: connect-group-id
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-config
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_LOG4J_ROOT_LOGLEVEL: DEBUG
+
+#  kafka-manager:
+#    image: dataspartan/kafka-manager
+#    environment:
+#      - ZK_HOSTS=zookeeper1:22181,zookeeper2:32181,zookeeper3:42181
+#    ports:
+#      - "9000:9000"
+#    links:
+#     - "zookeeper1"
+#     - "zookeeper2"
+#     - "zookeeper3"
+#    volumes:
+#      - ./confs/kafka-manager:/kafka-manager/conf
+
+  kafka-rest:
+    image: confluentinc/cp-kafka-rest:3.3.1
+    container_name: kafka-rest
+    links:
+     - "kafka1"
+     - "kafka2"
+     - "kafka3"
+    ports:
+      - '8082:8082'
+    environment:
+      KAFKA_REST_ZOOKEEPER_CONNECT: zookeeper1:22181,zookeeper2:32181,zookeeper3:42181
+      KAFKA_REST_LISTENERS: http://kafka-rest:8082
+      KAFKA_REST_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_REST_HOST_NAME: kafka-rest
+
+#  control-center:
+#    image: confluentinc/cp-control-center:latest
+#    hostname: control-center
+#    links:
+#     - "zookeeper1"
+#     - "zookeeper2"
+#     - "zookeeper3"
+#     - "kafka1"
+#     - "kafka2"
+#     - "kafka3"
+#     - "schema-registry"
+#     - "connect"
+#    ports:
+#      - "9021:9021"
+#    environment:
+#      PORT: 9021
+#      CONTROL_CENTER_BOOTSTRAP_SERVERS: kafka1:19092,kafka2:29092,kafka3:39092
+#      CONTROL_CENTER_ZOOKEEPER_CONNECT: zookeeper1:22181,zookeeper2:32181,zookeeper3:42181
+#      CONTROL_CENTER_CONNECT_CLUSTER: connect:28082
+#      CONTROL_CENTER_REPLICATION_FACTOR: 1
+#      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+#      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+#      CONFLUENT_METRICS_TOPIC_REPLICATION: 1

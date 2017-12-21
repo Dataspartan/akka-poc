@@ -1,0 +1,37 @@
+
+# Connection
+docker exec -ti kafkaexmple_kafka-create-topics_1 bash
+
+docker exec -ti kafkaexmple_kafka_1 bash
+
+# Run example
+kafka-run-class org.apache.kafka.streams.examples.wordcount.WordCountDemo
+
+
+kafka-topics --describe --zookeeper zookeeper:32181 --topic streams-file-input
+
+
+# Run producer
+kafka-console-producer --broker-list kafka:9092 --topic streams-file-input 
+
+# Run consumer
+kafka-console-consumer --bootstrap-server kafka:9092 \
+    --topic streams-file-input  \
+    --from-beginning 
+
+
+    --formatter kafka.tools.DefaultMessageFormatter \
+    --property print.key=true \
+    --property print.value=true \
+    --property key.deserializer=org.apache.kafka.common.serialization.StringDeserializer \
+    --property value.deserializer=org.apache.kafka.common.serialization.LongDeserializer
+
+# Delete topic 
+kafka-topics --delete --topic streams-plaintext-input --zookeeper zookeeper:32181 && \
+
+
+# Create topic
+kafka-topics --create --topic streams-plaintext-input --if-not-exists --zookeeper zookeeper:32181 --partitions 1 --replication-factor 1 && \
+kafka-topics --create --topic streams-wordcount-output --if-not-exists --zookeeper zookeeper:32181 --partitions 1 --replication-factor 1 --config cleanup.policy=compact && \
+
+
