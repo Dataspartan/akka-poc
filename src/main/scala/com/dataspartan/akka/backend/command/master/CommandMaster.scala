@@ -1,46 +1,40 @@
-package com.dataspartan.akka.backend.comand.master
+package com.dataspartan.akka.backend.command.master
 
 import akka.actor.{ActorLogging, Props, Timers}
 import akka.persistence.{PersistentActor, RecoveryCompleted, SnapshotOffer}
 
 import scala.concurrent.duration.FiniteDuration
-
+import scala.concurrent.duration._
 
 /**
   */
-object BackendMaster {
+object CommandMaster {
 
   def props(workTimeout: FiniteDuration): Props =
-    Props(new BackendMaster(workTimeout))
+    Props(new CommandMaster(workTimeout))
 
   case class Ack(workId: String)
 
-//  private sealed trait WorkerStatus
-//  private case object Idle extends WorkerStatus
-//  private case class Busy(workId: String, deadline: Deadline) extends WorkerStatus
-//  private case class WorkerState(ref: ActorRef, status: WorkerStatus, staleWorkerDeadline: Deadline)
-
-//  private case object CleanupTick
+  private case object CleanupTick
 
 }
 
-class BackendMaster(workTimeout: FiniteDuration) extends Timers with PersistentActor with ActorLogging {
+class CommandMaster(workTimeout: FiniteDuration) extends Timers with PersistentActor with ActorLogging {
+  import CommandMaster._
 
-  override val persistenceId: String = "backend-master"
 
-//  val considerWorkerDeadAfter: FiniteDuration =
-//    context.system.settings.config.getDuration("distributed-workers.consider-worker-dead-after").getSeconds.seconds
-//  def newStaleWorkerDeadline(): Deadline = considerWorkerDeadAfter.fromNow
-//
-//  timers.startPeriodicTimer("cleanup", CleanupTick, workTimeout / 2)
-//
+  override val persistenceId: String = "command-master"
+
+  val considerWorkerDeadAfter: FiniteDuration =
+    context.system.settings.config.getDuration("distributed-workers.consider-worker-dead-after").getSeconds.seconds
+  def newStaleWorkerDeadline(): Deadline = considerWorkerDeadAfter.fromNow
+
+  timers.startPeriodicTimer("cleanup", CleanupTick, workTimeout / 2)
+
 //  val mediator: ActorRef = DistributedPubSub(context.system).mediator
-//
-//  // the set of available workers is not event sourced as it depends on the current set of workers
-//  private var workers = Map[String, WorkerState]()
-//
-//  // workState is event sourced to be able to make sure work is processed even in case of crash
-//  private var workState = WorkState.empty
+
+  private var pendingWorks = List[String]()
+
 
 
   override def receiveRecover: Receive = {

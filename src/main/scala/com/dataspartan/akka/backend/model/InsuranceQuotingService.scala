@@ -1,8 +1,9 @@
-package com.dataspartan.akka.backend.query
+package com.dataspartan.akka.backend.model
 
 import akka.actor.{Actor, ActorLogging, Props}
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote
+import com.dataspartan.akka.backend.query.QueryProtocol
 
 object InsuranceQuotingService {
   def props: Props = Props[InsuranceQuotingService]

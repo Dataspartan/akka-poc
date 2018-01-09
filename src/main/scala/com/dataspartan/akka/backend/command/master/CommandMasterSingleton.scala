@@ -1,14 +1,14 @@
-package com.dataspartan.akka.backend.comand.master
+package com.dataspartan.akka.backend.command.master
 
 import akka.actor.{ActorSystem, PoisonPill}
 import akka.cluster.singleton._
 
 import scala.concurrent.duration._
 
-object BackendMasterSingleton {
+object CommandMasterSingleton {
 
-  private val singletonName = "backend-master"
-  private val singletonRole = "backend"
+  private val singletonName = "command-master"
+  private val singletonRole = "command-backend"
 
   // #singleton
   def startSingleton(system: ActorSystem) = {
@@ -16,7 +16,7 @@ object BackendMasterSingleton {
 
     system.actorOf(
       ClusterSingletonManager.props(
-        BackendMaster.props(workTimeout),
+        CommandMaster.props(workTimeout),
         PoisonPill,
         ClusterSingletonManagerSettings(system).withRole(singletonRole)
       ),

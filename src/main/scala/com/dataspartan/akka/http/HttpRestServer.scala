@@ -6,9 +6,10 @@ import akka.http.scaladsl.Http.ServerBinding
 import akka.http.scaladsl.server.{Route, RouteConcatenation}
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
-import com.dataspartan.akka.backend.comand.master.BackendMasterSingleton
+import com.dataspartan.akka.backend.command.master.CommandMasterSingleton
 import com.dataspartan.akka.backend.query.master.QueryMasterSingleton
 import com.dataspartan.akka.http.routes.{InsuranceManagementRoutes, UserManagementRoutes}
+
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.io.StdIn
@@ -25,7 +26,7 @@ object HttpRestServer extends UserManagementRoutes with InsuranceManagementRoute
     QueryMasterSingleton.proxyProps(system), name = "queryMasterProxy")
 
   val commandMasterProxy: ActorRef = system.actorOf(
-    BackendMasterSingleton.proxyProps(system), name = "commandMasterProxy")
+    CommandMasterSingleton.proxyProps(system), name = "commandMasterProxy")
 
   lazy val routes: Route = RouteConcatenation.concat(userManagementRoutes, insuranceManagementRoutes)
 

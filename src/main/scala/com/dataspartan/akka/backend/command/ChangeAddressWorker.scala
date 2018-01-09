@@ -1,32 +1,21 @@
-package com.dataspartan.akka.backend.comand.master
+package com.dataspartan.akka.backend.command
 
-import java.util.UUID
-
-import akka.actor._
-
-import scala.concurrent.duration._
+import akka.actor.{Actor, Props}
 import akka.persistence.fsm.PersistentFSM
 import akka.persistence.fsm.PersistentFSM.FSMState
-import akka.util.Timeout
-import akka.pattern.ask
-import com.dataspartan.akka.backend.comand.master.ChangeAddressWorker.{DomainEvent, WorkState}
+import akka.routing.FromConfig
+import com.dataspartan.akka.backend.command.ChangeAddressWorker._
+import com.dataspartan.akka.backend.command.CommandProtocol.{ChangeAddress, EndWork, NotifyQuote, QuoteInsurance}
+import com.dataspartan.akka.backend.entities.AddressEntities.Address
 
-import scala.reflect._
-import scala.reflect.ClassTag
 import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
-
+import scala.reflect.{ClassTag, _}
 
 
 object ChangeAddressWorker {
 
   def props(persistentId: String) = Props(new ChangeAddressWorker(persistentId))
 
-  sealed trait Command
-  case class ChangeAddress(newAddress: Address) extends Command
-  case object QuoteInsurance extends Command
-  case object NotifyQuote extends Command
-  case object EndWork extends Command
 
   sealed trait WorkState extends FSMState
   case object Idle extends WorkState {
@@ -50,7 +39,12 @@ object ChangeAddressWorker {
 }
 
 class ChangeAddressWorker(persistentId: String) extends Actor with PersistentFSM[WorkState, Address, DomainEvent] {
-  import ChangeAddressWorker._
+
+//  val userRepoRouter: ActorRef =
+//    context.actorOf(FromConfig.props(UserRepository.props), "userRepoRouter")
+//
+//  val insuranceServiceRouter: ActorRef =
+//    context.actorOf(FromConfig.props(InsuranceQuotingService.props), "insuranceServiceRouter")
 
   override def domainEventClassTag: ClassTag[DomainEvent] = classTag[DomainEvent]
 
@@ -64,10 +58,10 @@ class ChangeAddressWorker(persistentId: String) extends Actor with PersistentFSM
 
   override def persistenceId: String = persistentId
 
-  startWith(Idle, _)
+  startWith(Idle, Address("number", s"street", "town", "county", "postcode"))
 
   when(Idle) {
-    case Event(ChangeAddress(newAddress), _) => {
+    case Event(ChangeAddress(userId, newAddress), _) => {
       log.debug("received ChangeAddress ({}) request in state {}", newAddress, stateName)
       goto(ChangingAddress) applying AddressChanged(newAddress) forMax (1 seconds)
     }

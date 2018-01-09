@@ -8,7 +8,7 @@ import akka.http.scaladsl.testkit.ScalatestRouteTest
 import akka.testkit.TestActor.AutoPilot
 import akka.testkit.{TestActor, TestProbe}
 import akka.util.Timeout
-import com.dataspartan.akka.backend.comand.master.CommandProtocol.UpdateAddress
+import com.dataspartan.akka.backend.command.CommandProtocol.ChangeAddress
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote
@@ -17,8 +17,8 @@ import com.dataspartan.akka.backend.query.QueryProtocol.GetInsuranceQuote
 import com.dataspartan.akka.backend.query.QueryProtocol.{GetAddress, GetUser, GetUsers}
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{Matchers, WordSpec}
-import scala.concurrent.duration._
 
+import scala.concurrent.duration._
 import scala.language.postfixOps
 
 class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with ScalatestRouteTest
@@ -62,7 +62,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
       case GetInsuranceQuote(quoteId) =>
         sender ! Option(getInsuranceQuote(quoteId))
         TestActor.KeepRunning
-      case UpdateAddress(userId, _) =>
+      case ChangeAddress(userId, _) =>
         sender ! ActionResult(s"Address updated for User $userId")
         TestActor.KeepRunning
       case _ =>

@@ -2,8 +2,8 @@ package com.dataspartan.akka.backend.query.master
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props, Timers}
 import akka.routing.FromConfig
+import com.dataspartan.akka.backend.model.{InsuranceQuotingService, UserRepository}
 import com.dataspartan.akka.backend.query.QueryProtocol._
-import com.dataspartan.akka.backend.query.{InsuranceQuotingService, UserRepository}
 
 
 object QueryMaster {
