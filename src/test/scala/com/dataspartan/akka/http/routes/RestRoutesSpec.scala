@@ -62,7 +62,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
       case GetInsuranceQuote(quoteId) =>
         sender ! Option(getInsuranceQuote(quoteId))
         TestActor.KeepRunning
-      case ChangeAddress(userId, _) =>
+      case ChangeAddress(commandId, userId, _) =>
         sender ! ActionResult(s"Address updated for User $userId")
         TestActor.KeepRunning
       case _ =>

@@ -1,7 +1,12 @@
 package com.dataspartan.akka.backend.command.master
 
-import akka.actor.{ActorLogging, Props, Timers}
+import akka.actor.{ActorLogging, ActorRef, Props, Timers}
 import akka.persistence.{PersistentActor, RecoveryCompleted, SnapshotOffer}
+import akka.routing.FromConfig
+import com.dataspartan.akka.backend.command.CommandProtocol.{Command, CommandAccepted, CommandEnd}
+import com.dataspartan.akka.backend.command.{CommandState, MasterWorkerProtocol}
+import com.dataspartan.akka.backend.command.MasterWorkerProtocol.{WorkAccepted, WorkDomainEvent, WorkFailed, WorkIsDone}
+import com.dataspartan.akka.backend.command.worker.Worker
 
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
@@ -25,6 +30,9 @@ class CommandMaster(workTimeout: FiniteDuration) extends Timers with PersistentA
 
   override val persistenceId: String = "command-master"
 
+  val workerRouter: ActorRef =
+    context.actorOf(FromConfig.props(Worker.props), "workerRouter")
+
   val considerWorkerDeadAfter: FiniteDuration =
     context.system.settings.config.getDuration("distributed-workers.consider-worker-dead-after").getSeconds.seconds
   def newStaleWorkerDeadline(): Deadline = considerWorkerDeadAfter.fromNow
@@ -33,22 +41,23 @@ class CommandMaster(workTimeout: FiniteDuration) extends Timers with PersistentA
 
 //  val mediator: ActorRef = DistributedPubSub(context.system).mediator
 
-  private var pendingWorks = List[String]()
+  // commandState is event sourced to be able to make sure work is processed even in case of crash
+  private var commandState = CommandState.empty
 
 
 
   override def receiveRecover: Receive = {
 
-//    case SnapshotOffer(_, workStateSnapshot: WorkState) =>
-//      // If we would have  logic triggering snapshots in the actor
-//      // we would start from the latest snapshot here when recovering
-//      log.info("Got snapshot work state")
-//      workState = workStateSnapshot
-//
-//    case event: WorkDomainEvent =>
-//      // only update current state by applying the event, no side effects
-//      workState = workState.updated(event)
-//      log.info("Replayed {}", event.getClass.getSimpleName)
+    case SnapshotOffer(_, commandStateSnapshot: CommandState) =>
+      // If we would have  logic triggering snapshots in the actor
+      // we would start from the latest snapshot here when recovering
+      log.info("Got snapshot command state")
+      commandState = commandStateSnapshot
+
+    case event: WorkDomainEvent =>
+      // only update current state by applying the event, no side effects
+      commandState = commandState.updated(event)
+      log.info("Replayed {}", event.getClass.getSimpleName)
 
     case RecoveryCompleted =>
       log.info("Recovery completed")
@@ -56,112 +65,47 @@ class CommandMaster(workTimeout: FiniteDuration) extends Timers with PersistentA
   }
 
   override def receiveCommand: Receive = {
-    case _ =>  log.info("Recovery completed")
-//    case MasterWorkerProtocol.RegisterWorker(workerId) =>
-//      if (workers.contains(workerId)) {
-//        workers += (workerId -> workers(workerId).copy(ref = sender(), staleWorkerDeadline = newStaleWorkerDeadline()))
-//      } else {
-//        log.info("Worker registered: {}", workerId)
-//        val initialWorkerState = WorkerState(
-//          ref = sender(),
-//          status = Idle,
-//          staleWorkerDeadline = newStaleWorkerDeadline())
-//        workers += (workerId -> initialWorkerState)
-//
-//        if (workState.hasWork)
-//          sender() ! MasterWorkerProtocol.WorkIsReady
-//      }
-//
-//    // #graceful-remove
-//    case MasterWorkerProtocol.DeRegisterWorker(workerId) =>
-//      workers.get(workerId) match {
-//        case Some(WorkerState(_, Busy(workId, _), _)) =>
-//          // there was a workload assigned to the worker when it left
-//          log.info("Busy worker de-registered: {}", workerId)
-//          persist(WorkerFailed(workId)) { event ⇒
-//            workState = workState.updated(event)
-//            notifyWorkers()
-//          }
-//        case Some(_) =>
-//          log.info("Worker de-registered: {}", workerId)
-//        case _ =>
-//      }
-//      workers -= workerId
-//    // #graceful-remove
-//
-//    case MasterWorkerProtocol.WorkerRequestsWork(workerId) =>
-//      if (workState.hasWork) {
-//        workers.get(workerId) match {
-//          case Some(workerState @ WorkerState(_, Idle, _)) =>
-//            val work = workState.nextWork
-//            log.info("work: {}", work)
-//            persist(WorkStarted(work.workId)) { event =>
-//              workState = workState.updated(event)
-//              log.info("Giving worker {} some work {}", workerId, work.workId)
-//              val newWorkerState = workerState.copy(
-//                status = Busy(work.workId, Deadline.now + workTimeout),
-//                staleWorkerDeadline = newStaleWorkerDeadline())
-//              workers += (workerId -> newWorkerState)
-//              sender() ! work
-//            }
-//          case _ =>
-//        }
-//      }
-//
-//    case MasterWorkerProtocol.WorkerHeartbeat(workerId) =>
-//      workers.get(workerId) match {
-//        case Some(workerState @ WorkerState(_, Idle, _)) =>
-//          log.info("Updating worker {}", workerId)
-//          val newWorkerState = workerState.copy(
-//            staleWorkerDeadline = newStaleWorkerDeadline())
-//          workers += (workerId -> newWorkerState)
-//        case _ =>
-//      }
-//
-//    case MasterWorkerProtocol.WorkIsDone(workerId, workId, result) =>
-//      // idempotent - redelivery from the worker may cause duplicates, so it needs to be
-//      if (workState.isDone(workId)) {
-//        // previous Ack was lost, confirm again that this is done
-//        sender() ! MasterWorkerProtocol.Ack(workId)
-//      } else if (!workState.isInProgress(workId)) {
-//        log.info("Work {} not in progress, reported as done by worker {}", workId, workerId)
-//      } else {
-//        log.info("Work {} is done by worker {}", workId, workerId)
-//        changeWorkerToIdle(workerId, workId)
-//        persist(WorkCompleted(workId, result)) { event ⇒
-//          workState = workState.updated(event)
-//          mediator ! DistributedPubSubMediator.Publish(ResultsTopic, WorkResult(workId, result))
-//          // Ack back to original sender
-//          sender ! MasterWorkerProtocol.Ack(workId)
-//        }
-//      }
-//
-//    case MasterWorkerProtocol.WorkFailed(workerId, workId) =>
-//      if (workState.isInProgress(workId)) {
-//        log.info("Work {} failed by worker {}", workId, workerId)
-//        changeWorkerToIdle(workerId, workId)
-//        persist(WorkerFailed(workId)) { event ⇒
-//          workState = workState.updated(event)
-//          notifyWorkers()
-//        }
-//      }
-//
-//    // #persisting
-//    case work: Work =>
-//      // idempotent
-//      if (workState.isAccepted(work.workId)) {
-//        sender() ! Master.Ack(work.workId)
-//      } else {
-//        log.info("Accepted work: {}", work.workId)
-//        persist(WorkAccepted(work)) { event ⇒
-//          // Ack back to original sender
-//          sender() ! Master.Ack(work.workId)
-//          workState = workState.updated(event)
-//          notifyWorkers()
-//        }
-//      }
-//    // #persisting
-//
+
+    // #persisting
+    case command: Command =>
+      // idempotent
+      if (!commandState.isDone(command.commandId)) {
+        log.info("Start command: {}", command.commandId)
+        persist(WorkAccepted(command)) { event =>
+          commandState = commandState.updated(event)
+        }
+      }
+    // #persisting
+
+
+    case msg: WorkIsDone =>
+      // idempotent - redelivery from the worker may cause duplicates, so it needs to be
+      if (commandState.isDone(msg.commandId)) {
+        // previous Ack was lost, confirm again that this is done
+        sender() ! MasterWorkerProtocol.Ack(msg.commandId)
+      } else if (!commandState.isInProgress(msg.commandId)) {
+        log.info("Command {} not in progress, reported as done by worker", msg.commandId)
+      } else {
+        log.info("Command {} is done by worker", msg.commandId)
+        persist(msg) { event =>
+          commandState = commandState.updated(event)
+          // Ack back to original sender
+          sender ! MasterWorkerProtocol.Ack( msg.commandId)
+        }
+      }
+
+    case msg: WorkFailed =>
+      if (commandState.isInProgress(msg.commandId)) {
+        log.info("Command {} failed by worker", msg.commandId)
+        persist(msg) { event =>
+          commandState = commandState.updated(event)
+          startWork(commandState.getCommand(msg.commandId).get)
+        }
+      }
+
+
+
+
 //    // #pruning
 //    case CleanupTick =>
 //      log.info("Cleaning: {}", workers.size)
@@ -181,27 +125,14 @@ class CommandMaster(workTimeout: FiniteDuration) extends Timers with PersistentA
 //
 //        case _ => // this one is a keeper!
 //      }
-//    // #pruning
+    // #pruning
   }
 
-//  def notifyWorkers(): Unit =
-//    if (workState.hasWork) {
-//      workers.foreach {
-//        case (_, WorkerState(ref, Idle, _)) => ref ! MasterWorkerProtocol.WorkIsReady
-//        case _                           => // busy
-//      }
-//    }
-//
-//  def changeWorkerToIdle(workerId: String, workId: String): Unit =
-//    workers.get(workerId) match {
-//      case Some(workerState @ WorkerState(_, Busy(`workId`, _), _)) ⇒
-//        val newWorkerState = workerState.copy(status = Idle, staleWorkerDeadline = newStaleWorkerDeadline())
-//        workers += (workerId -> newWorkerState)
-//      case _ ⇒
-//      // ok, might happen after standby recovery, worker state is not persisted
-//    }
-//
-//  def tooLongSinceHeardFrom(lastHeardFrom: Long) =
-//    System.currentTimeMillis() - lastHeardFrom > considerWorkerDeadAfter.toMillis
+  def startWork(command: Command): Unit = {
+    workerRouter forward command
+  }
+
+  def tooLongSinceHeardFrom(lastHeardFrom: Long) =
+    System.currentTimeMillis() - lastHeardFrom > considerWorkerDeadAfter.toMillis
 
 }
