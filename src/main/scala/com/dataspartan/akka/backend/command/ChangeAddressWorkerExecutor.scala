@@ -13,34 +13,41 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.reflect.{ClassTag, _}
 import akka.pattern.ask
-import com.dataspartan.akka.backend.command.ChangeAddressWorkerExecutor.{DomainEvent, WorkState}
+import akka.persistence.SaveSnapshotSuccess
+import com.dataspartan.akka.backend.command.ChangeAddressWorkerExecutor.{ChangeAddressDomainEvent, ChangeAddressWorkState}
+
+import scala.language.postfixOps
 
 object ChangeAddressWorkerExecutor {
 
   def props(workerRef: ActorRef, commandId: String) = Props(new ChangeAddressWorkerExecutor(workerRef, commandId))
 
-  sealed trait WorkState extends FSMState
-  case object Idle extends WorkState {
+  sealed trait ChangeAddressWorkState extends FSMState
+  case object Idle extends ChangeAddressWorkState {
     override def identifier: String = "Idle"
   }
-  case object ChangingAddress extends WorkState {
+  case object ChangingAddress extends ChangeAddressWorkState {
     override def identifier: String = "ChangingAddress"
   }
-  case object QuotingInsurance extends WorkState {
+  case object QuotingInsurance extends ChangeAddressWorkState {
     override def identifier: String = "QuotingInsurance"
   }
-  case object NotifyingQuote extends WorkState {
+  case object NotifyingQuote extends ChangeAddressWorkState {
     override def identifier: String = "NotifyingQuote"
   }
+  case object Ended extends ChangeAddressWorkState {
+    override def identifier: String = "Ended"
+  }
 
-  sealed trait DomainEvent
-  case class AddressChanged(newAddress: Address) extends DomainEvent
-  case object InsuranceQuoteComplete extends DomainEvent
-  case object NotifyQuoteComplete extends DomainEvent
+
+  sealed trait ChangeAddressDomainEvent
+  case class AddressChanged(newAddress: Address) extends ChangeAddressDomainEvent
+  case object InsuranceQuoteComplete extends ChangeAddressDomainEvent
+  case object NotifyQuoteComplete extends ChangeAddressDomainEvent
 
 }
 
-class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extends Actor with PersistentFSM[WorkState, Address, DomainEvent]
+class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extends Actor with PersistentFSM[ChangeAddressWorkState, Address, ChangeAddressDomainEvent]
   with ActorLogging with Timers {
 
   import ChangeAddressWorkerExecutor._
@@ -51,31 +58,28 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
   //  val insuranceServiceRouter: ActorRef =
   //    context.actorOf(FromConfig.props(InsuranceQuotingService.props), "insuranceServiceRouter")
 
-  override def domainEventClassTag: ClassTag[DomainEvent] = classTag[DomainEvent]
+  override def domainEventClassTag: ClassTag[ChangeAddressDomainEvent] = classTag[ChangeAddressDomainEvent]
 
-  override def applyEvent(event: DomainEvent, address: Address): Address = {
+  override def applyEvent(event: ChangeAddressDomainEvent, address: Address): Address = {
     event match {
-      case AddressChanged(newAddress) => {
+      case AddressChanged(newAddress) =>
         log.info("apply AddressChanged")
-        val nextTick = ThreadLocalRandom.current.nextInt(3, 10).seconds
+        val nextTick = ThreadLocalRandom.current.nextInt(1, 3).seconds
         timers.startSingleTimer(s"tick", QuoteInsurance, nextTick)
         saveStateSnapshot()
         newAddress
-      }
-      case InsuranceQuoteComplete => {
+      case InsuranceQuoteComplete =>
         log.info("apply InsuranceQuoteComplete")
-        val nextTick = ThreadLocalRandom.current.nextInt(3, 10).seconds
+        val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
         timers.startSingleTimer(s"tick", NotifyQuote, nextTick)
         saveStateSnapshot()
         address
-      }
-      case NotifyQuoteComplete => {
+      case NotifyQuoteComplete =>
         log.info("apply NotifyQuoteComplete")
-        val nextTick = ThreadLocalRandom.current.nextInt(3, 10).seconds
+        val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
         timers.startSingleTimer(s"tick", EndWork, nextTick)
         saveStateSnapshot()
         address
-      }
     }
   }
 
@@ -84,41 +88,45 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
   startWith(Idle, Address("number", s"street", "town", "county", "postcode"))
 
   when(Idle) {
-    case Event(ChangeAddress(commandId, userId, newAddress), _) => {
+    case Event(ChangeAddress(_, userId, newAddress), _) => {
       log.info("received ChangeAddress ({}) request for user {} in state {}", newAddress, userId, stateName)
-      goto(ChangingAddress) applying AddressChanged(newAddress) forMax (30 seconds) replying ChangeAddressAccepted
+      goto(ChangingAddress) applying AddressChanged(newAddress) forMax (30 seconds) replying ChangeAddressAccepted(commandId)
     }
   }
 
   when(ChangingAddress) {
-    case Event(QuoteInsurance, _) => {
+    case Event(QuoteInsurance, _) =>
       log.info("received QuoteInsurance request in state {}", stateName)
       goto(QuotingInsurance) applying InsuranceQuoteComplete forMax (30 seconds)
-    }
   }
 
   when(QuotingInsurance) {
-    case Event(NotifyQuote, _) => {
+    case Event(NotifyQuote, _) =>
       log.info("received NotifyQuote request in state {}", stateName)
       goto(NotifyingQuote) applying NotifyQuoteComplete forMax (30 seconds)
-    }
   }
 
   when(NotifyingQuote) {
-    case Event(EndWork, _) => {
+    case Event(EndWork, _) =>
       log.info("received EndWork request in state {}", stateName)
-      workerRef ! ChangeAddressEnd
+      workerRef ! ChangeAddressEnd(commandId)
+      goto(Ended) forMax (1 second)
+  }
+
+  when(Ended) {
+    case Event(StateTimeout, _) =>
+      log.info("Stopping")
       stop
-    }
   }
 
   whenUnhandled {
     // common code for both states
-    case Event(e, s) =>
-      log.info(s"worker executor persistentId $persistenceId")
-      log.warning("received unhandled request {} in state {}/{}", e, stateName, s)
-      stay
+    case Event(e, s) => e match {
+      case _: SaveSnapshotSuccess =>
+        stay
+      case _ =>
+        log.warning("received unhandled request {} for persistenceId {} in state {}/{}", e, persistenceId, stateName, s)
+        stay
+    }
   }
-
-  log.info(s"Starting worker executor with persistentId $persistenceId and state $stateName")
 }

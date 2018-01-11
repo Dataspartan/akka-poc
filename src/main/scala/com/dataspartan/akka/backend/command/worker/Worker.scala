@@ -2,19 +2,16 @@ package com.dataspartan.akka.backend.command.worker
 
 import java.util.UUID
 
-import akka.actor.SupervisorStrategy.Stop
+import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
-import akka.util.Timeout
 import com.dataspartan.akka.backend.command.ChangeAddressWorkerExecutor
-import com.dataspartan.akka.backend.command.CommandProtocol._
 import com.dataspartan.akka.backend.command.MasterWorkerProtocol._
-import com.dataspartan.akka.backend.entities.AddressEntities.Address
-
-import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
-import akka.pattern.ask
+import com.dataspartan.akka.backend.command.CommandProtocol.{ChangeAddress, Command, CommandAccepted, CommandEnd}
 import com.dataspartan.akka.backend.command.master.CommandMasterSingleton
-import com.dataspartan.akka.http.HttpRestServer.system
+import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
+
+import scala.language.postfixOps
 
 /**
   * The worker is actually more of a middle manager, delegating the actual work
@@ -22,16 +19,18 @@ import com.dataspartan.akka.http.HttpRestServer.system
   */
 object Worker {
 
-  def props(): Props = Props[Worker]
+  def props: Props = Props[Worker]
 }
 
 class Worker extends Actor with Timers with ActorLogging {
-  import context.dispatcher
+
+  val commandMasterProxy: ActorRef = context.actorOf(
+    CommandMasterSingleton.proxyProps(context.system), name = "commandMasterProxy")
+
 
   val workerId = UUID.randomUUID().toString
 
-  val masterProxy: ActorRef = system.actorOf(
-    CommandMasterSingleton.proxyProps(system), name = "commandMasterProxy")
+  var currentSender:  Option[ActorRef] = None
 
   var currentCommand: Option[Command] = None
   def command: Command = currentCommand match {
@@ -47,104 +46,64 @@ class Worker extends Actor with Timers with ActorLogging {
       log.info("Got Command: {}", command)
       command match {
         case ChangeAddress(commandId, _, _) =>
-          log.info("Create worker for Command: {}", commandId)
+          log.debug("Create worker for Command: {}", commandId)
           currentCommand = Some(command)
+          currentSender = Some(sender())
           val workExecutor = createWorkExecutor(commandId, ChangeAddressWorkerExecutor.props(context.self, commandId))
           workExecutor ! command
           context.become(working)
-
-        case msg => log.info("Message error: {}", msg.getClass.getName)
+        case cmd =>
+          log.warning(s"(idle) Unhandled command $cmd $sender")
       }
 
-    case msg => log.info("Message error: {}", msg.getClass.getName)
-
+    case msg =>
+      log.warning(s"(idle) Unhandled message $msg $sender")
   }
 
   def working: Receive = {
 
     case _: CommandAccepted =>
-      log.info("Command is accepted")
-      masterProxy ! WorkAccepted(command)
+      log.debug("Command is accepted")
+      val res = ActionResult("Ok")
+      currentSender.get ! res
+      commandMasterProxy ! WorkAccepted(command)
     case _: CommandEnd =>
-      log.info("Command is complete")
-      masterProxy ! WorkIsDone(command.commandId)
+      log.debug("Command is complete")
+      commandMasterProxy ! WorkIsDone(command.commandId)
       context.setReceiveTimeout(5.seconds)
       context.become(waitForWorkIsDoneAck())
 
     case _: Command =>
-      log.warning("Yikes. Master told me to do work, while I'm already working.")
+      log.warning("(working) Master told me to do work, while I'm already working.")
 
+    case msg =>
+      log.warning(s"(working) Unhandled message $msg $sender")
   }
 
   def waitForWorkIsDoneAck(): Receive = {
     case Ack(id) if id == command.commandId =>
-      log.info(s"Received Ack $id, Stopping")
-      Stop
+      log.debug(s"Received Ack $id, Stopping")
+      context.setReceiveTimeout(Duration.Undefined)
 
     case ReceiveTimeout =>
-      log.info("No ack from master, resending work result")
-      masterProxy ! WorkIsDone(command.commandId)
+      log.debug("No ack from master, resending work result")
+      commandMasterProxy ! WorkIsDone(command.commandId)
+
+    case _: Terminated =>
+      log.debug("Worker stopped")
+      context.become(idle)
+
+    case msg =>
+      log.warning(s"(waitForWorkIsDoneAck) Unhandled message $msg $sender")
   }
 
   def createWorkExecutor(commandId: String, props: Props): ActorRef =
-  // in addition to starting the actor we also watch it, so that
-  // if it stops this worker will also be stopped
-    context.watch(context.actorOf(props, s"work-executor-$workerId"))
+    context.watch(context.actorOf(props, workerId))
 
   override def supervisorStrategy: OneForOneStrategy = OneForOneStrategy() {
     case _: ActorInitializationException => Stop
     case _: Exception =>
-      currentCommand foreach { command => masterProxy ! WorkFailed(command.commandId) }
-      Stop
+      currentCommand foreach { command => commandMasterProxy ! WorkFailed(command.commandId) }
+      Restart
   }
-}
-
-
-object WorkerTest extends App {
-
-  val system = ActorSystem("ClusterSystem")
-  implicit val executionContext: ExecutionContext = system.dispatcher
-
-  val commandMasterProxy: ActorRef = system.actorOf(
-    CommandMasterSingleton.proxyProps(system), name = "commandMasterProxy")
-
-  val req = ChangeAddress("id2112111", "uid", Address("number", s"street", "town", "county", "postcode"))
-
-  /*
-   * Start a new [[Requester]] actor.
-   */
-  val actorFsm: ActorRef = system.actorOf(Worker.props)
-  implicit def timeout: Timeout = 5 seconds
-
-  actorFsm ! req
-
-
-
-//  val result: Future[ChangeAddressResult] =
-//    (actorFsm ? req).mapTo[ChangeAddressResult]
-//
-//  result.onComplete( content =>
-//    println(s"--> $actorFsm - Content result($content)")
-//  )
-
-  //  actorFsm ! AddItem(Item(UUID.randomUUID().toString, "itemName2", 1))
-
-
-
-
-  //  val cart: Future[ShoppingCart] =
-  //    (actorFsm ? GetCurrentCart).mapTo[ShoppingCart]
-  //
-  //  cart.onComplete( content =>
-  //    println(s"--> $actorFsm - Content cart($content)")
-  //  )
-  //
-  //  val actorFsm2 = system.actorOf(FsmShoppingCart.props("id2"))
-  //
-  //  val cart2: Future[ShoppingCart] =
-  //    (actorFsm2 ? GetCurrentCart).mapTo[ShoppingCart]
-  //
-  //  cart2.onComplete( content =>
-  //    println(s"--> $actorFsm2 - Content cart($content)")
-  //  )
 }

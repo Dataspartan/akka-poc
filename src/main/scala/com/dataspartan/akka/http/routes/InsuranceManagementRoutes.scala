@@ -14,18 +14,19 @@ import scala.concurrent.Future
 trait InsuranceManagementRoutes extends RestRoutes {
 
   //#all-routes
-  lazy val insuranceManagementRoutes: Route =
+  lazy val insuranceManagementRoutes: Route = handleExceptions(routeExceptionHandler) {
     pathPrefix("insuranceQuotes") {
       concat(
         path(Segment) { quoteId => insuranceQuoteRoute(quoteId) },
       )
     }
+  }
   //#all-routes
 
   def insuranceQuoteRoute(quoteId: String): Route =
     concat(
       get {
-          log.info(s"get info for quote - $quoteId")
+        log.info(s"get info for quote - $quoteId")
         val maybeInsuranceQuote: Future[Option[InsuranceQuote]] =
           (queryMasterProxy ? GetInsuranceQuote(quoteId)).mapTo[Option[InsuranceQuote]]
         rejectEmptyResponse {

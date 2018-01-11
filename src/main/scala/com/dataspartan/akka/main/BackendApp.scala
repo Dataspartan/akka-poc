@@ -5,6 +5,7 @@ import java.util.concurrent.CountDownLatch
 
 import akka.actor.ActorSystem
 import akka.persistence.cassandra.testkit.CassandraLauncher
+import com.dataspartan.akka.backend.command.master.{CommandMaster, CommandMasterSingleton}
 import com.dataspartan.akka.backend.query.master.QueryMasterSingleton
 import com.dataspartan.akka.http.HttpRestServer
 import com.typesafe.config.{Config, ConfigFactory}
@@ -12,7 +13,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 
 object BackendApp {
 
-  val backEndPortRange = 2550 to 2560
+  val backEndPortRange = 2550 to 2570
   val queryWorkerPortRange = 3000 to 3499
   val commandWorkerPortRange = 3500 to 3999
 
@@ -30,6 +31,7 @@ object BackendApp {
       case portString::Nil if portString.matches("""\d+""") =>
         val port = portString.toInt
         if (queryWorkerPortRange.contains(port)) startQueryWorkerSystem(port)
+        if (commandWorkerPortRange.contains(port)) startCommandWorkerSystem(port)
       //        else startWorker(port, args.lift(1).map(_.toInt).getOrElse(1))
 
       case "rest"::Nil =>
@@ -63,7 +65,10 @@ object BackendApp {
 
   def startBackEnd(role: String, port: Int): Unit = {
     val system = ActorSystem("ClusterSystem", config(port, role))
-    QueryMasterSingleton.startSingleton(system)
+    role match {
+      case "query-backend" => QueryMasterSingleton.startSingleton (system)
+      case "command-backend" => CommandMasterSingleton.startSingleton (system)
+    }
   }
 
   def startFrontEnd(): Unit = {
@@ -72,6 +77,10 @@ object BackendApp {
 
   def startQueryWorkerSystem(port: Int): Unit = {
     ActorSystem("ClusterSystem", config(port, "query-worker"))
+  }
+
+  def startCommandWorkerSystem(port: Int): Unit = {
+    ActorSystem("ClusterSystem", config(port, "command-worker"))
   }
 
 //  /**

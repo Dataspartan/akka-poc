@@ -16,7 +16,7 @@ import scala.io.StdIn
 
 object HttpRestServer extends UserManagementRoutes with InsuranceManagementRoutes {
 
-  implicit val system: ActorSystem = ActorSystem("ClusterSystem")
+  protected implicit val system: ActorSystem = ActorSystem("ClusterSystem")
   implicit val materializer: ActorMaterializer = ActorMaterializer()
 
   // Needed for the Future and its methods flatMap/onComplete in the end

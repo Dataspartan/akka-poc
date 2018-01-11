@@ -17,16 +17,18 @@ import scala.concurrent.Future
 
 trait UserManagementRoutes extends RestRoutes {
 
+
   //#all-routes
-  lazy val userManagementRoutes: Route =
+  lazy val userManagementRoutes: Route = handleExceptions(routeExceptionHandler) {
     pathPrefix("users") {
       concat(
         pathEnd(usersRoute()),
         path(Segment) { userId => userRoute(userId) },
-        path(Segment / "address") {userId => addressRoute(userId)
+        path(Segment / "address") { userId => addressRoute(userId)
         }
       )
     }
+  }
   //#all-routes
 
   def usersRoute(): Route =
@@ -67,7 +69,7 @@ trait UserManagementRoutes extends RestRoutes {
           val commandId = s"${userId}_${DateTime.now.toIsoDateTimeString()}"
           log.info(s"update address for user - $userId - with commandId '$commandId'")
           val addressUpdated: Future[ActionResult] =
-            (queryMasterProxy ? ChangeAddress(commandId, userId, address)).mapTo[ActionResult]
+            (commandMasterProxy ? ChangeAddress(commandId, userId, address)).mapTo[ActionResult]
           onSuccess(addressUpdated) { result =>
             log.info(s"Address updated user [$userId]: ${result.description}")
             complete(StatusCodes.Created, result)
