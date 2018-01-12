@@ -4,7 +4,6 @@ import java.util.UUID
 
 import akka.actor._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
-import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.query.QueryProtocol
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 
@@ -44,6 +43,6 @@ class UserRepository extends Actor with ActorLogging {
       sender() ! Option(getAddress(userId))
     case ChangeAddress(_, userId, newAddress) =>
       log.info(context.self.toString())
-      sender() ! ActionResult(s"Address updated for User $userId")
+      sender() ! ChangeAddressResult(s"Address updated for User $userId")
   }
 }

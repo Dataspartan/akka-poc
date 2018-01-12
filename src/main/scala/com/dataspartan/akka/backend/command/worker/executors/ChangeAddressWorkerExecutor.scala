@@ -1,8 +1,7 @@
 package com.dataspartan.akka.backend.command.worker.executors
 
-import java.util.concurrent.ThreadLocalRandom
-
 import akka.actor._
+import akka.cluster.pubsub.{DistributedPubSub, DistributedPubSubMediator}
 import akka.persistence.SaveSnapshotSuccess
 import akka.persistence.fsm.PersistentFSM
 import akka.persistence.fsm.PersistentFSM.{FSMState, Failure}
@@ -11,8 +10,9 @@ import com.dataspartan.akka.backend.command.MasterWorkerProtocol
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressWorkerExecutor._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
-import com.dataspartan.akka.backend.model.{InsuranceQuotingService, UserRepository}
+import com.dataspartan.akka.backend.model.{InsuranceQuotingService, QuoteNotificator, UserRepository}
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
+import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -25,10 +25,11 @@ object ChangeAddressProtocol {
       ChangeAddressWorkerExecutor.props(workerRef, commandId)
   }
 
-  case class QuoteInsurance(commandId: String) extends Command
-  case class NotifyQuote(commandId: String) extends Command
-  case class EndWork(commandId: String) extends Command
-
+  case class ChangeAddressResult(override val description: String) extends ActionResult
+  case class QuoteInsurance()
+  case class QuoteInsuranceResult(override val description: String, insuranceQuote: InsuranceQuote) extends ActionResult
+  case class NotifyQuote()
+  case class EndWork()
 
   case class ChangeAddressAccepted(commandId: String, result: ActionResult) extends CommandAccepted
 
@@ -58,12 +59,11 @@ object ChangeAddressWorkerExecutor {
 
   sealed trait ChangeAddressDomainEvent
   case class AddressChanged(newAddress: Address) extends ChangeAddressDomainEvent
-  case object InsuranceQuoteComplete extends ChangeAddressDomainEvent
-  case object NotifyQuoteComplete extends ChangeAddressDomainEvent
+  case class InsuranceQuoteComplete(insuranceQuote: InsuranceQuote) extends ChangeAddressDomainEvent
 
 
-  def emptyChangeAddressData = ChangeAddressData(None)
-  case class ChangeAddressData(address: Option[Address])
+  def emptyChangeAddressData = ChangeAddressData(None, None)
+  case class ChangeAddressData(address: Option[Address], insuranceQuote: Option[InsuranceQuote])
 }
 
 class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extends Actor
@@ -72,11 +72,11 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
 
   import ChangeAddressWorkerExecutor._
 
-    val userRepo: ActorRef =
-      context.actorOf(UserRepository.props, "userRepo")
+  val userRepo: ActorRef = context.actorOf(UserRepository.props, "userRepo")
 
-    val insuranceService: ActorRef =
-      context.actorOf(InsuranceQuotingService.props, "insuranceService")
+  val insuranceService: ActorRef = context.actorOf(InsuranceQuotingService.props, "insuranceService")
+
+  val mediator: ActorRef = DistributedPubSub(context.system).mediator
 
   override def domainEventClassTag: ClassTag[ChangeAddressDomainEvent] = classTag[ChangeAddressDomainEvent]
 
@@ -86,27 +86,11 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
     event match {
       case AddressChanged(newAddress) =>
         log.info("apply AddressChanged")
-        self ! NotifyQuote
-        ChangeAddressData(Some(newAddress))
-      case InsuranceQuoteComplete =>
+        changeAddressData copy (address = Some(newAddress))
+      case InsuranceQuoteComplete(insuranceQuote) =>
         log.info("apply InsuranceQuoteComplete")
-        execQuoteInsurance(changeAddressData)
-      case NotifyQuoteComplete =>
-        log.info("apply NotifyQuoteComplete")
-        execNotifyQuote(changeAddressData)
+        changeAddressData copy (insuranceQuote = Some(insuranceQuote))
     }
-  }
-
-  def execQuoteInsurance(changeAddressData: ChangeAddressData): ChangeAddressData = {
-    val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
-    timers.startSingleTimer(s"tick", NotifyQuote, nextTick)
-    changeAddressData
-  }
-
-  def execNotifyQuote(changeAddressData: ChangeAddressData): ChangeAddressData = {
-    val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
-    timers.startSingleTimer(s"tick", EndWork, nextTick)
-    changeAddressData
   }
 
   startWith(Idle, emptyChangeAddressData)
@@ -120,25 +104,31 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
   }
 
   when(ChangingAddress, stateTimeout = 5 seconds) {
-    case Event(res: ActionResult, _) =>
-      log.info("received ActionResult response in state {}", stateName)
+    case Event(res: ChangeAddressResult, _) =>
+      log.info("received ChangeAddressResult response in state {}", stateName)
       workerRef ! ChangeAddressAccepted(commandId, res)
-      goto(QuotingInsurance) applying InsuranceQuoteComplete
+      insuranceService ! QuoteInsurance()
+      goto(QuotingInsurance)
     case Event(StateTimeout, _) =>
       stop(Failure(s"Timeout request in state $stateName"))
   }
 
   when(QuotingInsurance, stateTimeout = 30 seconds)  {
-    case Event(NotifyQuote, _) | Event(StateTimeout, _) =>
-      log.info("received NotifyQuote request in state {}", stateName)
-      goto(NotifyingQuote) applying NotifyQuoteComplete
+    case Event(res: QuoteInsuranceResult, _) =>
+      log.info("received QuoteInsuranceResult response in state {}", stateName)
+      mediator ! DistributedPubSubMediator.Publish(QuoteNotificator.ResultsTopic, res.insuranceQuote)
+      goto(Ended) applying InsuranceQuoteComplete(res.insuranceQuote)
+    case Event(StateTimeout, _) =>
+      log.info(s"Timeout request in state $stateName")
+      insuranceService ! QuoteInsurance()
+      stay
   }
 
-  when(NotifyingQuote, stateTimeout = 30 seconds) {
-    case Event(EndWork, _) | Event(StateTimeout, _) =>
-      log.info("received EndWork request in state {}", stateName)
-      goto(Ended)
-  }
+//  when(NotifyingQuote) {
+//    case Event(StateTimeout, _) =>
+//      log.info("received EndWork request in state {}", stateName)
+//      goto(Ended)
+//  }
 
   when(Ended, stateTimeout = 5 seconds) {
     case Event(StateTimeout, _) =>

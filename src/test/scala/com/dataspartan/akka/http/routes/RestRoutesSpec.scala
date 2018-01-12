@@ -63,7 +63,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
         sender ! Option(getInsuranceQuote(quoteId))
         TestActor.KeepRunning
       case ChangeAddress(commandId, userId, _) =>
-        sender ! ActionResult(s"Address updated for User $userId")
+        sender ! ChangeAddressResult(s"Address updated for User $userId")
         TestActor.KeepRunning
       case _ =>
         TestActor.NoAutoPilot
@@ -130,7 +130,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
         contentType should ===(ContentTypes.`application/json`)
 
         // and we know what message we're expecting back:
-        entityAs[ActionResult] should ===(ActionResult(s"Address updated for User $userId"))
+        entityAs[ChangeAddressResult] should ===(ChangeAddressResult(s"Address updated for User $userId"))
       }
     }
   }

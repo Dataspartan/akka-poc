@@ -11,7 +11,6 @@ import com.dataspartan.akka.backend.query.QueryProtocol.{GetAddress, GetUser, Ge
 import akka.pattern.ask
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
-import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 
 import scala.concurrent.Future
 
@@ -68,8 +67,8 @@ trait UserManagementRoutes extends RestRoutes {
         entity(as[Address]) { address =>
           val commandId = s"${userId}_${DateTime.now.toIsoDateTimeString()}"
           log.info(s"update address for user - $userId - with commandId '$commandId'")
-          val addressUpdated: Future[ActionResult] =
-            (commandMasterProxy ? ChangeAddress(commandId, userId, address)).mapTo[ActionResult]
+          val addressUpdated: Future[ChangeAddressResult] =
+            (commandMasterProxy ? ChangeAddress(commandId, userId, address)).mapTo[ChangeAddressResult]
           onSuccess(addressUpdated) { result =>
             log.info(s"Address updated user [$userId]: ${result.description}")
             complete(StatusCodes.Created, result)

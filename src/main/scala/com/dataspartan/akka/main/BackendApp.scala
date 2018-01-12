@@ -6,6 +6,7 @@ import java.util.concurrent.CountDownLatch
 import akka.actor.ActorSystem
 import akka.persistence.cassandra.testkit.CassandraLauncher
 import com.dataspartan.akka.backend.command.master.{CommandMaster, CommandMasterSingleton}
+import com.dataspartan.akka.backend.model.QuoteNotificator
 import com.dataspartan.akka.backend.query.master.QueryMasterSingleton
 import com.dataspartan.akka.http.HttpRestServer
 import com.typesafe.config.{Config, ConfigFactory}
@@ -80,7 +81,8 @@ object BackendApp {
   }
 
   def startCommandWorkerSystem(port: Int): Unit = {
-    ActorSystem("ClusterSystem", config(port, "command-worker"))
+    val system = ActorSystem("ClusterSystem", config(port, "command-worker"))
+    system.actorOf(QuoteNotificator.props, "quoteNotificator")
   }
 
 //  /**
