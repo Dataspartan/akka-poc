@@ -1,22 +1,39 @@
-package com.dataspartan.akka.backend.command
+package com.dataspartan.akka.backend.command.worker.executors
 
 import java.util.concurrent.ThreadLocalRandom
 
-import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props, Timers}
-import akka.persistence.fsm.PersistentFSM
-import akka.persistence.fsm.PersistentFSM.FSMState
-import akka.util.Timeout
-import com.dataspartan.akka.backend.command.CommandProtocol._
-import com.dataspartan.akka.backend.entities.AddressEntities.Address
-
-import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.duration._
-import scala.reflect.{ClassTag, _}
-import akka.pattern.ask
+import akka.actor._
 import akka.persistence.SaveSnapshotSuccess
-import com.dataspartan.akka.backend.command.ChangeAddressWorkerExecutor.{ChangeAddressDomainEvent, ChangeAddressWorkState}
+import akka.persistence.fsm.PersistentFSM
+import akka.persistence.fsm.PersistentFSM.{FSMState, Failure}
+import com.dataspartan.akka.backend.command.CommandProtocol._
+import com.dataspartan.akka.backend.command.MasterWorkerProtocol
+import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
+import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressWorkerExecutor._
+import com.dataspartan.akka.backend.entities.AddressEntities.Address
+import com.dataspartan.akka.backend.model.{InsuranceQuotingService, UserRepository}
+import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 
+import scala.concurrent.duration._
 import scala.language.postfixOps
+import scala.reflect._
+
+object ChangeAddressProtocol {
+
+  case class ChangeAddress(commandId: String, userId: String, newAddress: Address) extends StartingCommand {
+    override def getProps(workerRef: ActorRef): Props =
+      ChangeAddressWorkerExecutor.props(workerRef, commandId)
+  }
+
+  case class QuoteInsurance(commandId: String) extends Command
+  case class NotifyQuote(commandId: String) extends Command
+  case class EndWork(commandId: String) extends Command
+
+
+  case class ChangeAddressAccepted(commandId: String, result: ActionResult) extends CommandAccepted
+
+  case class ChangeAddressEnd(commandId: String) extends CommandEnd
+}
 
 object ChangeAddressWorkerExecutor {
 
@@ -39,75 +56,76 @@ object ChangeAddressWorkerExecutor {
     override def identifier: String = "Ended"
   }
 
-
   sealed trait ChangeAddressDomainEvent
   case class AddressChanged(newAddress: Address) extends ChangeAddressDomainEvent
   case object InsuranceQuoteComplete extends ChangeAddressDomainEvent
   case object NotifyQuoteComplete extends ChangeAddressDomainEvent
 
+
+  def emptyChangeAddressData = ChangeAddressData(None)
+  case class ChangeAddressData(address: Option[Address])
 }
 
-class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extends Actor with PersistentFSM[ChangeAddressWorkState, Address, ChangeAddressDomainEvent]
+class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extends Actor
+  with PersistentFSM[ChangeAddressWorkState, ChangeAddressData, ChangeAddressDomainEvent]
   with ActorLogging with Timers {
 
   import ChangeAddressWorkerExecutor._
 
-  //  val userRepoRouter: ActorRef =
-  //    context.actorOf(FromConfig.props(UserRepository.props), "userRepoRouter")
-  //
-  //  val insuranceServiceRouter: ActorRef =
-  //    context.actorOf(FromConfig.props(InsuranceQuotingService.props), "insuranceServiceRouter")
+    val userRepo: ActorRef =
+      context.actorOf(UserRepository.props, "userRepo")
+
+    val insuranceService: ActorRef =
+      context.actorOf(InsuranceQuotingService.props, "insuranceService")
 
   override def domainEventClassTag: ClassTag[ChangeAddressDomainEvent] = classTag[ChangeAddressDomainEvent]
 
   override def persistenceId: String = commandId
 
-  override def applyEvent(event: ChangeAddressDomainEvent, address: Address): Address = {
+  override def applyEvent(event: ChangeAddressDomainEvent, changeAddressData: ChangeAddressData): ChangeAddressData = {
     event match {
       case AddressChanged(newAddress) =>
         log.info("apply AddressChanged")
-        execChangeAddress(newAddress)
+        self ! NotifyQuote
+        ChangeAddressData(Some(newAddress))
       case InsuranceQuoteComplete =>
         log.info("apply InsuranceQuoteComplete")
-        execQuoteInsurance(address)
+        execQuoteInsurance(changeAddressData)
       case NotifyQuoteComplete =>
         log.info("apply NotifyQuoteComplete")
-        execNotifyQuote(address)
+        execNotifyQuote(changeAddressData)
     }
   }
 
-  def execChangeAddress(newAddress: Address): Address = {
-    val nextTick = ThreadLocalRandom.current.nextInt(1, 3).seconds
-    timers.startSingleTimer(s"tick", QuoteInsurance, nextTick )
-    newAddress
-  }
-
-  def execQuoteInsurance(newAddress: Address): Address = {
+  def execQuoteInsurance(changeAddressData: ChangeAddressData): ChangeAddressData = {
     val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
     timers.startSingleTimer(s"tick", NotifyQuote, nextTick)
-    newAddress
+    changeAddressData
   }
 
-  def execNotifyQuote(newAddress: Address): Address = {
+  def execNotifyQuote(changeAddressData: ChangeAddressData): ChangeAddressData = {
     val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
     timers.startSingleTimer(s"tick", EndWork, nextTick)
-    newAddress
+    changeAddressData
   }
 
-
-  startWith(Idle, Address("number", s"street", "town", "county", "postcode"))
+  startWith(Idle, emptyChangeAddressData)
 
   when(Idle) {
-    case Event(ChangeAddress(_, userId, newAddress), _) => {
-      log.info("received ChangeAddress ({}) request for user {} in state {}", newAddress, userId, stateName)
-      goto(ChangingAddress) applying AddressChanged(newAddress) replying ChangeAddressAccepted(commandId)
-    }
+    case Event(changeAddress: ChangeAddress, _) =>
+      log.info("received ChangeAddress ({}) request for user {} in state {}",
+        changeAddress.newAddress, changeAddress.userId, stateName)
+      userRepo ! changeAddress
+      goto(ChangingAddress) applying AddressChanged(changeAddress.newAddress)
   }
 
-  when(ChangingAddress, stateTimeout = 30 seconds) {
-    case Event(QuoteInsurance, _) | Event(StateTimeout, _) =>
-      log.info("received QuoteInsurance request in state {}", stateName)
+  when(ChangingAddress, stateTimeout = 5 seconds) {
+    case Event(res: ActionResult, _) =>
+      log.info("received ActionResult response in state {}", stateName)
+      workerRef ! ChangeAddressAccepted(commandId, res)
       goto(QuotingInsurance) applying InsuranceQuoteComplete
+    case Event(StateTimeout, _) =>
+      stop(Failure(s"Timeout request in state $stateName"))
   }
 
   when(QuotingInsurance, stateTimeout = 30 seconds)  {

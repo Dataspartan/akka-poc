@@ -8,7 +8,7 @@ import akka.http.scaladsl.testkit.ScalatestRouteTest
 import akka.testkit.TestActor.AutoPilot
 import akka.testkit.{TestActor, TestProbe}
 import akka.util.Timeout
-import com.dataspartan.akka.backend.command.CommandProtocol.ChangeAddress
+import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote

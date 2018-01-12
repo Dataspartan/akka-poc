@@ -1,21 +1,20 @@
 package com.dataspartan.akka.backend.command
 
-import com.dataspartan.akka.backend.entities.AddressEntities.Address
+import akka.actor.{ActorRef, Props}
+import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 
 object CommandProtocol {
 
-  sealed trait Command {
+  trait Command {
     val commandId: String
   }
-  case class ChangeAddress(commandId: String, userId: String, newAddress: Address) extends Command
-  case class QuoteInsurance(commandId: String) extends Command
-  case class NotifyQuote(commandId: String) extends Command
-  case class EndWork(commandId: String) extends Command
 
-  sealed trait CommandAccepted extends Command
-  case class ChangeAddressAccepted(commandId: String) extends CommandAccepted
+  trait StartingCommand extends Command {
+    def getProps(workerRef: ActorRef): Props
+  }
 
-  sealed trait CommandEnd extends Command
-  case class ChangeAddressEnd(commandId: String) extends CommandEnd
-
+  trait CommandAccepted extends Command {
+    val result: ActionResult
+  }
+  trait CommandEnd extends Command
 }

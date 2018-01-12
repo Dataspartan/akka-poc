@@ -4,10 +4,10 @@ import java.util.UUID
 
 import akka.actor.SupervisorStrategy.{Restart, Stop}
 import akka.actor._
-import com.dataspartan.akka.backend.command.ChangeAddressWorkerExecutor
+import com.dataspartan.akka.backend.command.CommandProtocol.StartingCommand
 import com.dataspartan.akka.backend.command.MasterWorkerProtocol._
 //import scala.concurrent.duration._
-import com.dataspartan.akka.backend.command.CommandProtocol.{ChangeAddress, Command, CommandAccepted, CommandEnd}
+import com.dataspartan.akka.backend.command.CommandProtocol.{Command, CommandAccepted, CommandEnd}
 import com.dataspartan.akka.backend.command.master.CommandMasterSingleton
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 
@@ -39,10 +39,9 @@ class Worker extends Actor with Timers with ActorLogging {
 
   def receive: Receive = {
 
-    case _: CommandAccepted =>
+    case commOk: CommandAccepted =>
       log.debug("Command is accepted")
-      val res = ActionResult("Ok")
-      currentSender.get ! res
+      currentSender.get ! commOk.result
       commandMasterProxy ! WorkAccepted(command)
 
     case _: CommandEnd =>
@@ -52,8 +51,8 @@ class Worker extends Actor with Timers with ActorLogging {
     case command: Command  =>
       log.info("Got Command: {}", command)
       command match {
-        case ChangeAddress(commandId, _, _) =>
-          executeCommand(command, ChangeAddressWorkerExecutor.props(self, commandId))
+        case sCommand: StartingCommand =>
+          executeCommand(sCommand, sCommand.getProps(self))
       }
       if (currentWorkExecutor.isDefined) {
         log.debug("Send command to executor: {}", command.commandId)

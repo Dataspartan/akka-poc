@@ -9,7 +9,7 @@ import akka.http.scaladsl.server.directives.RouteDirectives.complete
 import com.dataspartan.akka.backend.entities.UserEntities.{User, Users}
 import com.dataspartan.akka.backend.query.QueryProtocol.{GetAddress, GetUser, GetUsers}
 import akka.pattern.ask
-import com.dataspartan.akka.backend.command.CommandProtocol.ChangeAddress
+import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 

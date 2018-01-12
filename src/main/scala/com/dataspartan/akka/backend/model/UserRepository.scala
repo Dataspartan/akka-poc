@@ -2,10 +2,11 @@ package com.dataspartan.akka.backend.model
 
 import java.util.UUID
 
-import akka.actor.{Actor, ActorLogging, Props}
+import akka.actor._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.query.QueryProtocol
+import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 
 object UserRepository {
   def props: Props = Props[UserRepository]
@@ -31,7 +32,6 @@ class UserRepository extends Actor with ActorLogging {
     log.info(s"Restarting ${context.self.path}")
   }
 
-
   def receive: Receive = {
     case GetUsers =>
       log.info(context.self.toString())
@@ -42,8 +42,8 @@ class UserRepository extends Actor with ActorLogging {
     case GetAddress(userId) =>
       log.info(context.self.toString())
       sender() ! Option(getAddress(userId))
-//    case UpdateAddress(userId, _) =>
-//      log.info(context.self.toString())
-//      sender() ! ActionResult(s"Address updated for User $userId")
+    case ChangeAddress(_, userId, newAddress) =>
+      log.info(context.self.toString())
+      sender() ! ActionResult(s"Address updated for User $userId")
   }
 }
