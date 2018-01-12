@@ -60,63 +60,73 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
 
   override def domainEventClassTag: ClassTag[ChangeAddressDomainEvent] = classTag[ChangeAddressDomainEvent]
 
+  override def persistenceId: String = commandId
+
   override def applyEvent(event: ChangeAddressDomainEvent, address: Address): Address = {
     event match {
       case AddressChanged(newAddress) =>
         log.info("apply AddressChanged")
-        val nextTick = ThreadLocalRandom.current.nextInt(1, 3).seconds
-        timers.startSingleTimer(s"tick", QuoteInsurance, nextTick)
-        saveStateSnapshot()
-        newAddress
+        execChangeAddress(newAddress)
       case InsuranceQuoteComplete =>
         log.info("apply InsuranceQuoteComplete")
-        val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
-        timers.startSingleTimer(s"tick", NotifyQuote, nextTick)
-        saveStateSnapshot()
-        address
+        execQuoteInsurance(address)
       case NotifyQuoteComplete =>
         log.info("apply NotifyQuoteComplete")
-        val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
-        timers.startSingleTimer(s"tick", EndWork, nextTick)
-        saveStateSnapshot()
-        address
+        execNotifyQuote(address)
     }
   }
 
-  override def persistenceId: String = commandId
+  def execChangeAddress(newAddress: Address): Address = {
+    val nextTick = ThreadLocalRandom.current.nextInt(1, 3).seconds
+    timers.startSingleTimer(s"tick", QuoteInsurance, nextTick )
+    newAddress
+  }
+
+  def execQuoteInsurance(newAddress: Address): Address = {
+    val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
+    timers.startSingleTimer(s"tick", NotifyQuote, nextTick)
+    newAddress
+  }
+
+  def execNotifyQuote(newAddress: Address): Address = {
+    val nextTick = ThreadLocalRandom.current.nextInt(10, 30).seconds
+    timers.startSingleTimer(s"tick", EndWork, nextTick)
+    newAddress
+  }
+
 
   startWith(Idle, Address("number", s"street", "town", "county", "postcode"))
 
   when(Idle) {
     case Event(ChangeAddress(_, userId, newAddress), _) => {
       log.info("received ChangeAddress ({}) request for user {} in state {}", newAddress, userId, stateName)
-      goto(ChangingAddress) applying AddressChanged(newAddress) forMax (30 seconds) replying ChangeAddressAccepted(commandId)
+      goto(ChangingAddress) applying AddressChanged(newAddress) replying ChangeAddressAccepted(commandId)
     }
   }
 
-  when(ChangingAddress) {
+  when(ChangingAddress, stateTimeout = 30 seconds) {
     case Event(QuoteInsurance, _) | Event(StateTimeout, _) =>
       log.info("received QuoteInsurance request in state {}", stateName)
-      goto(QuotingInsurance) applying InsuranceQuoteComplete forMax (30 seconds)
+      goto(QuotingInsurance) applying InsuranceQuoteComplete
   }
 
-  when(QuotingInsurance)  {
+  when(QuotingInsurance, stateTimeout = 30 seconds)  {
     case Event(NotifyQuote, _) | Event(StateTimeout, _) =>
       log.info("received NotifyQuote request in state {}", stateName)
-      goto(NotifyingQuote) applying NotifyQuoteComplete forMax (30 seconds)
+      goto(NotifyingQuote) applying NotifyQuoteComplete
   }
 
-  when(NotifyingQuote) {
+  when(NotifyingQuote, stateTimeout = 30 seconds) {
     case Event(EndWork, _) | Event(StateTimeout, _) =>
       log.info("received EndWork request in state {}", stateName)
-      goto(Ended) forMax (5 seconds)
+      goto(Ended)
   }
 
-  when(Ended) {
+  when(Ended, stateTimeout = 5 seconds) {
     case Event(StateTimeout, _) =>
       log.info("Sending End not in state {}", stateName)
       workerRef ! ChangeAddressEnd(commandId)
-      stay forMax (5 seconds)
+      stay
     case Event(MasterWorkerProtocol.Ack(_), _) =>
       log.info("Stopping")
       stop
@@ -126,19 +136,10 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
     // common code for both states
     case Event(e, s) => e match {
       case _: SaveSnapshotSuccess =>
-        unhandledStay(stateName)
+        stay
       case _ =>
         log.warning("received unhandled request {} for persistenceId {} in state {}/{}", e, persistenceId, stateName, s)
-        unhandledStay(stateName)
+        stay forMax (0 seconds)
     }
   }
-
-  def unhandledStay(stateName: FSMState): State =
-    stateName match {
-      case ChangingAddress => stay forMax (5 seconds)
-      case QuotingInsurance => stay forMax (5 seconds)
-      case NotifyingQuote => stay forMax (5 seconds)
-      case Ended => stay forMax (5 seconds)
-      case _ => stay
-    }
 }
