@@ -2,11 +2,11 @@ package com.dataspartan.akka.backend.command.worker
 
 import java.util.UUID
 
-import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
+import akka.actor.SupervisorStrategy.{Restart, Stop}
 import akka.actor._
 import com.dataspartan.akka.backend.command.ChangeAddressWorkerExecutor
 import com.dataspartan.akka.backend.command.MasterWorkerProtocol._
-import scala.concurrent.duration._
+//import scala.concurrent.duration._
 import com.dataspartan.akka.backend.command.CommandProtocol.{ChangeAddress, Command, CommandAccepted, CommandEnd}
 import com.dataspartan.akka.backend.command.master.CommandMasterSingleton
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
@@ -27,74 +27,62 @@ class Worker extends Actor with Timers with ActorLogging {
   val commandMasterProxy: ActorRef = context.actorOf(
     CommandMasterSingleton.proxyProps(context.system), name = "commandMasterProxy")
 
+  val workerId: String = UUID.randomUUID().toString
 
-  val workerId = UUID.randomUUID().toString
-
+  var currentWorkExecutor:  Option[ActorRef] = None
   var currentSender:  Option[ActorRef] = None
-
   var currentCommand: Option[Command] = None
   def command: Command = currentCommand match {
     case Some(command) => command
     case None         => throw new IllegalStateException("Not working")
   }
 
-  def receive: Receive = idle
-
-  def idle: Receive = {
-
-    case command: Command =>
-      log.info("Got Command: {}", command)
-      command match {
-        case ChangeAddress(commandId, _, _) =>
-          log.debug("Create worker for Command: {}", commandId)
-          currentCommand = Some(command)
-          currentSender = Some(sender())
-          val workExecutor = createWorkExecutor(commandId, ChangeAddressWorkerExecutor.props(context.self, commandId))
-          workExecutor ! command
-          context.become(working)
-        case cmd =>
-          log.warning(s"(idle) Unhandled command $cmd $sender")
-      }
-
-    case msg =>
-      log.warning(s"(idle) Unhandled message $msg $sender")
-  }
-
-  def working: Receive = {
+  def receive: Receive = {
 
     case _: CommandAccepted =>
       log.debug("Command is accepted")
       val res = ActionResult("Ok")
       currentSender.get ! res
       commandMasterProxy ! WorkAccepted(command)
+
     case _: CommandEnd =>
       log.debug("Command is complete")
       commandMasterProxy ! WorkIsDone(command.commandId)
-      context.setReceiveTimeout(5.seconds)
-      context.become(waitForWorkIsDoneAck())
 
-    case _: Command =>
-      log.warning("(working) Master told me to do work, while I'm already working.")
-
-    case msg =>
-      log.warning(s"(working) Unhandled message $msg $sender")
-  }
-
-  def waitForWorkIsDoneAck(): Receive = {
-    case Ack(id) if id == command.commandId =>
-      log.debug(s"Received Ack $id, Stopping")
-      context.setReceiveTimeout(Duration.Undefined)
-
-    case ReceiveTimeout =>
-      log.debug("No ack from master, resending work result")
-      commandMasterProxy ! WorkIsDone(command.commandId)
+    case command: Command  =>
+      log.info("Got Command: {}", command)
+      command match {
+        case ChangeAddress(commandId, _, _) =>
+          executeCommand(command, ChangeAddressWorkerExecutor.props(self, commandId))
+      }
+      if (currentWorkExecutor.isDefined) {
+        log.debug("Send command to executor: {}", command.commandId)
+        currentWorkExecutor.get ! command
+      }
 
     case _: Terminated =>
       log.debug("Worker stopped")
-      context.become(idle)
+      currentWorkExecutor = None
+      currentSender = None
+      currentCommand = None
 
     case msg =>
-      log.warning(s"(waitForWorkIsDoneAck) Unhandled message $msg $sender")
+      if (currentWorkExecutor.isDefined) {
+        log.debug("Send msg to executor: {}", msg)
+        currentWorkExecutor.get ! msg
+      }
+      else {
+        log.warning(s"Unhandled message $msg $sender")
+      }
+  }
+
+  def executeCommand(command: Command, props: Props): Unit = {
+    if (currentCommand.isEmpty) {
+      log.debug("Create worker for Command: {}", command.commandId)
+      currentCommand = Some(command)
+      currentSender = Some(sender())
+      currentWorkExecutor = Some(createWorkExecutor( command.commandId, props))
+    }
   }
 
   def createWorkExecutor(commandId: String, props: Props): ActorRef =

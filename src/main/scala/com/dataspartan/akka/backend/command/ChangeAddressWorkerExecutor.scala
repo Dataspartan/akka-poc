@@ -95,26 +95,29 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
   }
 
   when(ChangingAddress) {
-    case Event(QuoteInsurance, _) =>
+    case Event(QuoteInsurance, _) | Event(StateTimeout, _) =>
       log.info("received QuoteInsurance request in state {}", stateName)
       goto(QuotingInsurance) applying InsuranceQuoteComplete forMax (30 seconds)
   }
 
-  when(QuotingInsurance) {
-    case Event(NotifyQuote, _) =>
+  when(QuotingInsurance)  {
+    case Event(NotifyQuote, _) | Event(StateTimeout, _) =>
       log.info("received NotifyQuote request in state {}", stateName)
       goto(NotifyingQuote) applying NotifyQuoteComplete forMax (30 seconds)
   }
 
   when(NotifyingQuote) {
-    case Event(EndWork, _) =>
+    case Event(EndWork, _) | Event(StateTimeout, _) =>
       log.info("received EndWork request in state {}", stateName)
-      workerRef ! ChangeAddressEnd(commandId)
-      goto(Ended) forMax (1 second)
+      goto(Ended) forMax (5 seconds)
   }
 
   when(Ended) {
     case Event(StateTimeout, _) =>
+      log.info("Sending End not in state {}", stateName)
+      workerRef ! ChangeAddressEnd(commandId)
+      stay forMax (5 seconds)
+    case Event(MasterWorkerProtocol.Ack(_), _) =>
       log.info("Stopping")
       stop
   }
@@ -123,10 +126,19 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
     // common code for both states
     case Event(e, s) => e match {
       case _: SaveSnapshotSuccess =>
-        stay
+        unhandledStay(stateName)
       case _ =>
         log.warning("received unhandled request {} for persistenceId {} in state {}/{}", e, persistenceId, stateName, s)
-        stay
+        unhandledStay(stateName)
     }
   }
+
+  def unhandledStay(stateName: FSMState): State =
+    stateName match {
+      case ChangingAddress => stay forMax (5 seconds)
+      case QuotingInsurance => stay forMax (5 seconds)
+      case NotifyingQuote => stay forMax (5 seconds)
+      case Ended => stay forMax (5 seconds)
+      case _ => stay
+    }
 }
