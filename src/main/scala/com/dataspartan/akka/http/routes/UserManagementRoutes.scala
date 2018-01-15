@@ -22,8 +22,8 @@ trait UserManagementRoutes extends RestRoutes {
     pathPrefix("users") {
       concat(
         pathEnd(usersRoute()),
-        path(Segment) { userId => userRoute(userId) },
-        path(Segment / "address") { userId => addressRoute(userId)
+        path(LongNumber) { userId => userRoute(userId) },
+        path(LongNumber / "address") { userId => addressRoute(userId)
         }
       )
     }
@@ -40,7 +40,7 @@ trait UserManagementRoutes extends RestRoutes {
       }
     )
 
-  def userRoute(userId: String): Route =
+  def userRoute(userId: Long): Route =
     concat(
       get {
         log.info(s"get user info - $userId")
@@ -52,7 +52,7 @@ trait UserManagementRoutes extends RestRoutes {
       }
     )
 
-  def addressRoute(userId: String): Route =
+  def addressRoute(userId: Long): Route =
     concat(
       get {
         log.info(s"get address for user - $userId")

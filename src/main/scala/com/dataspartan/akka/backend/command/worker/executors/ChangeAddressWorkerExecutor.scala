@@ -20,7 +20,7 @@ import scala.reflect._
 
 object ChangeAddressProtocol {
 
-  case class ChangeAddress(commandId: String, userId: String, newAddress: Address) extends StartingCommand {
+  case class ChangeAddress(commandId: String, userId: Long, newAddress: Address) extends StartingCommand {
     override def getProps(workerRef: ActorRef): Props =
       ChangeAddressWorkerExecutor.props(workerRef, commandId)
   }

@@ -13,8 +13,8 @@ trait RestJsonSupport extends SprayJsonSupport {
 
   implicit val userJsonFormat = jsonFormat4(User)
   implicit val usersJsonFormat = jsonFormat1(Users)
-  implicit val addressJsonFormat = jsonFormat5(Address)
-  implicit val insuranceQuoteJsonFormat = jsonFormat4(InsuranceQuote)
+  implicit val addressJsonFormat = jsonFormat6(Address)
+  implicit val insuranceQuoteJsonFormat = jsonFormat5(InsuranceQuote)
 
   implicit val actionPerformedJsonFormat = jsonFormat1(ChangeAddressResult)
 }

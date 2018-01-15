@@ -36,16 +36,16 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
     }
     Users(users)
   }
-  private def getUser(userId: String): User = {
+  private def getUser(userId: Long): User = {
     User("f0a2d772-23e1-4af8-9b33-9d1e26b3cd13", s"login $userId", "name", "surname")
   }
-  private def getAddress(userId: String): Address = {
+  private def getAddress(userId: Long): Address = {
     Address("number", s"street $userId", "town", "county", "postcode")
   }
 
-  private def getInsuranceQuote(quoteId: String): InsuranceQuote = {
-    InsuranceQuote(quoteId, 100, "description",
-      Address("number", s"street $quoteId", "town", "county", "postcode"))
+  private def getInsuranceQuote(quoteId: Long): InsuranceQuote = {
+    InsuranceQuote(0L, 100, "description",
+      Address("number", s"street $quoteId", "town", "county", "postcode"), Some(quoteId))
   }
 
   val autoPilot = new AutoPilot {
@@ -88,7 +88,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
       }
     }
     "return user information if user exists (GET /users/{userId})" in {
-      val userId = "userId1"
+      val userId = 1L
       // note that there's no need for the host part in the uri:
       val request = HttpRequest(uri = s"/users/$userId")
 
@@ -102,7 +102,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
       }
     }
     "return user address if user exists (GET /users/{userId}/address)" in {
-      val userId = "userId1"
+      val userId = 1L
       // note that there's no need for the host part in the uri:
       val request = HttpRequest(uri = s"/users/$userId/address")
 
@@ -116,7 +116,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
       }
     }
     "be able to update the address (PUT /users/{userId}/address)" in {
-      val userId = "userId1"
+      val userId = 1L
       val newAddress = getAddress(userId)
       val addressEntity = Marshal(newAddress).to[MessageEntity].futureValue // futureValue is from ScalaFutures
 
@@ -138,7 +138,7 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
   //#actual-test
   "InsuranceManagementRoutes" should {
     "return quote information if quoteId exists (GET /insuranceQuotes/{quoteId})" in {
-      val quoteId = "1234"
+      val quoteId = 1234L
       // note that there's no need for the host part in the uri:
       val request = HttpRequest(uri = s"/insuranceQuotes/$quoteId")
 

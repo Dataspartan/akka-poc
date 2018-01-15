@@ -17,13 +17,13 @@ trait InsuranceManagementRoutes extends RestRoutes {
   lazy val insuranceManagementRoutes: Route = handleExceptions(routeExceptionHandler) {
     pathPrefix("insuranceQuotes") {
       concat(
-        path(Segment) { quoteId => insuranceQuoteRoute(quoteId) },
+        path(LongNumber) { quoteId => insuranceQuoteRoute(quoteId) }
       )
     }
   }
   //#all-routes
 
-  def insuranceQuoteRoute(quoteId: String): Route =
+  def insuranceQuoteRoute(quoteId: Long): Route =
     concat(
       get {
         log.info(s"get info for quote - $quoteId")
