@@ -25,6 +25,7 @@ object ChangeAddressProtocol {
       ChangeAddressWorkerExecutor.props(workerRef, commandId)
   }
 
+  case class NewAddress(address: Address)
   case class ChangeAddressResult(override val description: String) extends ActionResult
   case class QuoteInsurance(userId: Long)
   case class QuoteInsuranceResult(override val description: String, insuranceQuote: InsuranceQuote) extends ActionResult
