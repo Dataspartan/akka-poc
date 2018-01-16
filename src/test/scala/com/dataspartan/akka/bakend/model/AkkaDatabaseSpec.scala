@@ -7,7 +7,7 @@ import akka.util.Timeout
 import com.dataspartan.akka.backend.entities.UserEntities.User
 import com.dataspartan.akka.backend.entities.{AddressEntities, InsuranceEntities, UserEntities}
 import com.dataspartan.akka.backend.model.UserRepository
-import com.dataspartan.akka.backend.query.QueryProtocol.GetUsers
+import com.dataspartan.akka.backend.query.QueryProtocol._
 import org.scalatest.{BeforeAndAfterAll, FlatSpecLike, Matchers}
 import slick.jdbc.H2Profile.api._
 
@@ -45,6 +45,15 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     val future = userRepo ? GetUsers
     Await.result(future, 500 millis)
     assert(future.isCompleted && future.value.contains(Success(Seq.empty[User])))
+  }
+
+  "A UserRepository Actor" should "get user that not exist" in {
+
+    val userRepo = system.actorOf(UserRepository.props)
+
+    val future = userRepo ? GetUser(0L)
+    Await.result(future, 500 millis)
+    assert(future.isCompleted && future.value.contains(Success(Option.empty[User])))
   }
 }
 

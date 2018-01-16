@@ -9,8 +9,9 @@ import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtoc
 import com.dataspartan.akka.backend.entities.AddressEntities._
 import com.dataspartan.akka.backend.entities.UserEntities._
 import slick.jdbc.H2Profile.api._
+import slick.lifted.Query
 
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
 import scala.language.postfixOps
 import scala.util.{Failure, Success}
 
@@ -32,41 +33,83 @@ object UserRepository {
 
   def getUserByUserId(userId: Long)
                      (implicit db: Database,
-                      executionContext: ExecutionContext): Future[User] = {
+                      executionContext: ExecutionContext): Option[User] = {
     val query = usersDB.filter(_.userId === userId)
-    db.run(query.result.head) map (_.toUser)
+    getUser(query)
   }
 
   def getUserByLogin(login: String)
                     (implicit db: Database,
-                     executionContext: ExecutionContext): Future[User] = {
-    val query = usersDB.filter(_.login === login)
-    db.run(query.result.head) map (_.toUser)
+                     executionContext: ExecutionContext): Option[User] = {
+    val query: Query[UsersDB, UserDB, Seq] = usersDB.filter(_.login === login)
+    getUser(query)
+  }
+
+  private def getUser(query: Query[UsersDB, UserDB, Seq])
+                    (implicit db: Database,
+                     executionContext: ExecutionContext): Option[User] = {
+    val qResult = db.run(query.result.head) map (_.toUser)
+    var user: Option[User] = None
+    qResult onComplete {
+      case Success(userDb) => user = Some(userDb)
+      case Failure(t) => println("An error has occured: " + t.getMessage)
+    }
+    user
   }
 
   def getAddress(addressId: Long)
                 (implicit db: Database,
-                 executionContext: ExecutionContext): Future[Address] = {
+                 executionContext: ExecutionContext): Option[Address] = {
     val query = addressesDB.filter(_.addressId === addressId)
-    db.run(query.result.head) map (_.toAddress)
+    val qResult = db.run(query.result.head) map (_.toAddress)
+    var address: Option[Address] = None
+    qResult onComplete {
+      case Success(addressDb) => address = Some(addressDb)
+      case Failure(t) => println("An error has occured: " + t.getMessage)
+    }
+    address
   }
 
   def createUser(user: User)
                 (implicit db: Database,
-                 executionContext: ExecutionContext): Future[Long] = {
+                 executionContext: ExecutionContext): Option[Long] = {
     val newUser= (usersDB returning  usersDB.map(_.userId)) += UserDBFactory.fromUser(user)
-    db.run(newUser)
+    val qResult =  db.run(newUser)
+    var userId: Option[Long] = None
+    qResult onComplete {
+      case Success(newUserId) => userId = Some(newUserId)
+      case Failure(t) => println("An error has occured: " + t.getMessage)
+    }
+    userId
   }
+
+  def createAddress(address: Address)
+                (implicit db: Database,
+                 executionContext: ExecutionContext): Option[Long] = {
+    val newAddress = (addressesDB returning  addressesDB.map(_.addressId)) += AddressDBFactory.fromAddress(address)
+    val qResult =  db.run(newAddress)
+    var addressId: Option[Long] = None
+    qResult onComplete {
+      case Success(newAddressId) => addressId = Some(newAddressId)
+      case Failure(t) => println("An error has occured: " + t.getMessage)
+    }
+    addressId
+  }
+
 
   def updateUserAddress(userId: Long, address: Address)
                        (implicit db: Database,
-                        executionContext: ExecutionContext): Future[ChangeAddressResult] = {
-    val newAddress = (addressesDB returning  addressesDB.map(_.addressId)) += AddressDBFactory.fromAddress(address)
-    db.run(newAddress).map {
-      addressId: Long =>
-        val userUpdate = usersDB.filter(_.userId === userId).map(_.addressId).update(Some(addressId))
-        return db.run(userUpdate) map (_ => ChangeAddressResult(s"Address updated for User $userId"))
+                        executionContext: ExecutionContext): ChangeAddressResult = {
+    val addressId = createAddress(address)
+    val userUpdate = usersDB.filter(_.userId === userId).map(_.addressId).update(addressId)
+    val qResult = db.run(userUpdate)
+
+    var res = ChangeAddressResult(s"Error")
+    qResult onComplete {
+      case Success(numRows) => res = ChangeAddressResult(s"Address updated for User $userId")
+      case Failure(t) => println("An error has occured: " + t.getMessage)
     }
+    res
   }
 }
 
