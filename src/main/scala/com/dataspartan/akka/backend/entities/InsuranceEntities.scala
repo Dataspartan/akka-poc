@@ -1,22 +1,22 @@
 package com.dataspartan.akka.backend.entities
 
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
-
 import slick.jdbc.H2Profile.api._
 
 object InsuranceEntities {
-  final case class InsuranceQuote(userId: Long, quantity : Double, description: String, address: Address, quoteId: Option[Long])
+  final case class InsuranceQuote(userId: Long, quantity : Double, description: String, address: Address, quoteId: Option[Long] = None)
 
   final case class InsuranceQuoteDB(userId: Long, addressId: Long, quantity : Double, description: String,
-                                    quoteId: Option[Long] = None)
+                                    quoteId: Option[Long] = None) {
 
-  final object InsuranceQuoteDBTrans {
-    def fromInsuranceQuote(insuranceQuote: InsuranceQuote, address: Address) =
+    def toInsuranceQuote(address: Address): InsuranceQuote =
+      InsuranceQuote(userId, quantity, description, address, quoteId)
+  }
+
+  final object InsuranceQuoteDBFactory {
+    def fromInsuranceQuote(insuranceQuote: InsuranceQuote) =
       InsuranceQuoteDB(insuranceQuote.userId, insuranceQuote.address.addressId.get, insuranceQuote.quantity,
         insuranceQuote.description, None)
-
-    def toInsuranceQuote(insQuoteDB: InsuranceQuoteDB, address: Address) =
-      InsuranceQuote(insQuoteDB.userId, insQuoteDB.quantity, insQuoteDB.description, address, insQuoteDB.quoteId)
   }
 
   class InsuranceQuotesDB(tag: Tag) extends Table[InsuranceQuoteDB](tag, "INSURANCE_QUOTES") {

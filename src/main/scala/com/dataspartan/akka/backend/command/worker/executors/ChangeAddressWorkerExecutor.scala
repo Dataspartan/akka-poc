@@ -26,7 +26,7 @@ object ChangeAddressProtocol {
   }
 
   case class ChangeAddressResult(override val description: String) extends ActionResult
-  case class QuoteInsurance()
+  case class QuoteInsurance(userId: Long)
   case class QuoteInsuranceResult(override val description: String, insuranceQuote: InsuranceQuote) extends ActionResult
   case class NotifyQuote()
   case class EndWork()
@@ -58,12 +58,12 @@ object ChangeAddressWorkerExecutor {
   }
 
   sealed trait ChangeAddressDomainEvent
-  case class AddressChanged(newAddress: Address) extends ChangeAddressDomainEvent
+  case class AddressChanged(userId: Long, newAddress: Address) extends ChangeAddressDomainEvent
   case class InsuranceQuoteComplete(insuranceQuote: InsuranceQuote) extends ChangeAddressDomainEvent
 
 
-  def emptyChangeAddressData = ChangeAddressData(None, None)
-  case class ChangeAddressData(address: Option[Address], insuranceQuote: Option[InsuranceQuote])
+  def emptyChangeAddressData = ChangeAddressData(None, None, None)
+  case class ChangeAddressData(userId: Option[Long], address: Option[Address], insuranceQuote: Option[InsuranceQuote])
 }
 
 class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extends Actor
@@ -84,9 +84,9 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
 
   override def applyEvent(event: ChangeAddressDomainEvent, changeAddressData: ChangeAddressData): ChangeAddressData = {
     event match {
-      case AddressChanged(newAddress) =>
+      case AddressChanged(userId, newAddress) =>
         log.info("apply AddressChanged")
-        changeAddressData copy (address = Some(newAddress))
+        changeAddressData copy (userId = Some(userId), address = Some(newAddress))
       case InsuranceQuoteComplete(insuranceQuote) =>
         log.info("apply InsuranceQuoteComplete")
         changeAddressData copy (insuranceQuote = Some(insuranceQuote))
@@ -100,14 +100,14 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       log.info("received ChangeAddress ({}) request for user {} in state {}",
         changeAddress.newAddress, changeAddress.userId, stateName)
       userRepo ! changeAddress
-      goto(ChangingAddress) applying AddressChanged(changeAddress.newAddress)
+      goto(ChangingAddress) applying AddressChanged(changeAddress.userId, changeAddress.newAddress)
   }
 
   when(ChangingAddress, stateTimeout = 5 seconds) {
-    case Event(res: ChangeAddressResult, _) =>
+    case Event(res: ChangeAddressResult, data) =>
       log.info("received ChangeAddressResult response in state {}", stateName)
       workerRef ! ChangeAddressAccepted(commandId, res)
-      insuranceService ! QuoteInsurance()
+      insuranceService ! QuoteInsurance(data.userId.get)
       goto(QuotingInsurance)
     case Event(StateTimeout, _) =>
       stop(Failure(s"Timeout request in state $stateName"))
@@ -118,9 +118,9 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       log.info("received QuoteInsuranceResult response in state {}", stateName)
       mediator ! DistributedPubSubMediator.Publish(QuoteNotificator.ResultsTopic, res.insuranceQuote)
       goto(Ended) applying InsuranceQuoteComplete(res.insuranceQuote)
-    case Event(StateTimeout, _) =>
+    case Event(StateTimeout, data) =>
       log.info(s"Timeout request in state $stateName")
-      insuranceService ! QuoteInsurance()
+      insuranceService ! QuoteInsurance(data.userId.get)
       stay
   }
 

@@ -8,8 +8,13 @@ object AddressEntities {
                            addressId: Option[Long] = None)
 
   final case class AddressDB(number: String, street: String, town: String, county: String, postcode: String,
-                             addressId: Option[Long] = None)
-  final object AddressDBTrans {
+                             addressId: Option[Long] = None) {
+
+    def toAddress: Address = Address(number, street, town,
+      county, postcode, addressId)
+  }
+
+  final object AddressDBFactory {
     def fromAddress(address: Address): AddressDB = AddressDB(address.number, address.street, address.town,
       address.county, address.postcode, address.addressId)
   }

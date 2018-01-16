@@ -31,13 +31,13 @@ class RestRoutesSpec extends WordSpec with Matchers with ScalaFutures with Scala
 
   private def getUsers(n: Int): Users = {
     var users: List[User] = List.empty[User]
-    if (n > 0) {
-      1 to n foreach (i => users = users :+ User("f0a2d772-23e1-4af8-9b33-9d1e26b3cd13", s"login$i", s"name$i", s"surname$i"))
-    }
+//    if (n > 0) {
+//      1 to n foreach (i => users = users :+ User("f0a2d772-23e1-4af8-9b33-9d1e26b3cd13", s"login$i", s"name$i", s"surname$i"))
+//    }
     Users(users)
   }
   private def getUser(userId: Long): User = {
-    User("f0a2d772-23e1-4af8-9b33-9d1e26b3cd13", s"login $userId", "name", "surname")
+    User(s"login $userId", "name", "surname")
   }
   private def getAddress(userId: Long): Address = {
     Address("number", s"street $userId", "town", "county", "postcode")
