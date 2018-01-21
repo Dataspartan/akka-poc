@@ -1,21 +1,21 @@
 package com.dataspartan.akka.backend.model
 
-import java.util.UUID
+import java.util.{NoSuchElementException, UUID}
 
 import akka.actor._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
-import com.dataspartan.akka.backend.query.QueryProtocol
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.AddressEntities._
 import com.dataspartan.akka.backend.entities.UserEntities._
 import slick.jdbc.H2Profile.api._
-import slick.lifted.Query
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.postfixOps
 import scala.util.{Failure, Success}
 import akka.pattern.ask
 import akka.util.Timeout
+import com.dataspartan.akka.backend.query.QueryProtocol._
+
 import scala.concurrent.duration._
 
 object UserRepository {
@@ -23,8 +23,7 @@ object UserRepository {
 }
 
 class UserRepository extends Actor with ActorLogging {
-  import QueryProtocol._
-  import UserRepository._
+  import slick.lifted.Query
 
   implicit val executionContext: ExecutionContext = context.system.dispatcher
   implicit val db: Database = Database.forConfig("h2mem1")
@@ -45,31 +44,33 @@ class UserRepository extends Actor with ActorLogging {
     case GetUser(userId) =>
       log.info(context.self.toString())
       getUserByUserId(sender, userId)
-    case NewAddress(address) =>
-      createAddress(sender, address)
+    case NewUser(commandId, user) =>
+      createUser(sender, commandId, user)
+    case NewAddress(commandId, address) =>
+      createAddress(sender, commandId, address)
     case GetAddress(addressId) =>
       log.info(context.self.toString())
       getAddress(sender, addressId)
-    case ChangeAddress(_, userId, newAddress) =>
+    case ChangeAddress(commandId, userId, newAddress) =>
       log.info(context.self.toString())
-      updateUserAddress(sender, userId, newAddress)
+      updateUserAddress(sender, commandId, userId, newAddress)
   }
 
-  def getUsers(sender: ActorRef): Unit = {
+  private def getUsers(sender: ActorRef): Unit = {
     val qResult = db.run(usersDB.result) map (_ map(_.toUser))
 
     qResult onComplete {
       case Success(users) => sender ! users
-      case Failure(t) => println("An error has occured: " + t.getMessage)
+      case Failure(ex) => sender ! UserQueryFailed(ex)
     }
   }
 
-  def getUserByUserId(sender: ActorRef, userId: Long): Unit = {
+  private def getUserByUserId(sender: ActorRef, userId: Long): Unit = {
     val query = usersDB.filter(_.userId === userId)
     getUser(sender, query)
   }
 
-  def getUserByLogin(sender: ActorRef, login: String): Unit = {
+  private def getUserByLogin(sender: ActorRef, login: String): Unit = {
     val query: Query[UsersDB, UserDB, Seq] = usersDB.filter(_.login === login)
     getUser(sender, query)
   }
@@ -78,51 +79,58 @@ class UserRepository extends Actor with ActorLogging {
     val qResult = db.run(query.result.head) map (_.toUser)
     qResult onComplete {
       case Success(user) => sender ! user
-      case Failure(t) => sender ! Option.empty[User]//println("An error has occured: " + t.getMessage)
+      case Failure(ex) => ex match {
+        case _: NoSuchElementException => sender ! UserNotFound
+        case _ => sender ! UserQueryFailed(ex)
+      }
     }
   }
 
-  def getAddress(sender: ActorRef, addressId: Long): Unit = {
+  private def getAddress(sender: ActorRef, addressId: Long): Unit = {
     val query = addressesDB.filter(_.addressId === addressId)
     val qResult = db.run(query.result.head) map (_.toAddress)
     qResult onComplete {
       case Success(address) => sender ! address
-      case Failure(t) => println("An error has occured: " + t.getMessage)
+      case Failure(ex) => ex match {
+        case _: NoSuchElementException => sender ! AddressNotFound
+        case _ => sender ! UserQueryFailed(ex)
+      }
     }
   }
 
-  def createUser(sender: ActorRef, user: User): Unit = {
+  private def createUser(sender: ActorRef, commandId: String, user: User): Unit = {
     val newUser= (usersDB returning  usersDB.map(_.userId)) += UserDBFactory.fromUser(user)
     val qResult =  db.run(newUser)
 
     qResult onComplete {
       case Success(newUserId) => sender ! newUserId
-      case Failure(t) => println("An error has occured: " + t.getMessage)
+      case Failure(ex) => sender ! NewUserFailed(commandId, ex)
     }
   }
 
-  def createAddress(sender: ActorRef, address: Address): Unit = {
+  private def createAddress(sender: ActorRef, commandId: String, address: Address): Unit = {
     val newAddress = (addressesDB returning  addressesDB.map(_.addressId)) += AddressDBFactory.fromAddress(address)
     val qResult =  db.run(newAddress)
     qResult onComplete {
       case Success(newAddressId) => sender ! newAddressId
-      case Failure(t) => println("An error has occured: " + t.getMessage)
+      case Failure(ex) => sender ! NewAddressFailed(commandId, ex)
     }
   }
 
-  def updateUserAddress(sender: ActorRef, userId: Long, address: Address): Unit = {
-    val addressIdResp: Future[Long] = (self ? NewAddress(address)).mapTo[Long]
+  private def updateUserAddress(sender: ActorRef, commandId: String, userId: Long, address: Address): Unit = {
+    val addressIdResp: Future[Any] = self ? NewAddress(commandId, address)
 
     addressIdResp onComplete {
-      case Success(addressId) => {
+      case Success(addressId: Long) => {
         val userUpdate = usersDB.filter(_.userId === userId).map(_.addressId).update(Some(addressId))
         val qResult = db.run(userUpdate)
         qResult onComplete {
           case Success(numRows) => sender ! ChangeAddressResult(s"Address updated for User $userId")
-          case Failure(t) => println("An error has occured: " + t.getMessage)
+          case Failure(ex) => sender ! ChangeAddressFailed(commandId, ex)
         }
       }
-      case Failure(t) => println("An error has occured: " + t.getMessage)
+      case Success(failure) => sender ! failure
+      case Failure(ex) => sender ! ChangeAddressFailed(commandId, ex)
     }
   }
 }

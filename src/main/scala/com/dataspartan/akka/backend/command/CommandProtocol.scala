@@ -17,4 +17,8 @@ object CommandProtocol {
     val result: ActionResult
   }
   trait CommandEnd extends Command
+
+  trait CommandFailed extends Command {
+    val error: Throwable
+  }
 }

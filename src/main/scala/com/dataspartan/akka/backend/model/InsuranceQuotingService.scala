@@ -1,5 +1,6 @@
 package com.dataspartan.akka.backend.model
 
+import java.util.NoSuchElementException
 import java.util.concurrent.ThreadLocalRandom
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
@@ -24,7 +25,6 @@ object InsuranceQuotingService {
 
 class InsuranceQuotingService extends Actor with ActorLogging {
   import QueryProtocol._
-  import InsuranceQuotingService._
 
   implicit val executionContext: ExecutionContext = context.system.dispatcher
   implicit val db: Database = Database.forConfig("h2mem1")
@@ -36,31 +36,32 @@ class InsuranceQuotingService extends Actor with ActorLogging {
     case GetInsuranceQuote(quoteId) =>
       log.info(context.self.toString())
       getQuoteByQuoteId(sender, quoteId)
-    case QuoteInsurance(userId) =>
+    case QuoteInsurance(commandId, userId) =>
       log.info(context.self.toString())
       val nextTick = ThreadLocalRandom.current.nextInt(10, 12).seconds
       Thread.sleep(nextTick.toMillis)
-      createQuote(sender, userId)
+      createQuote(sender, commandId, userId)
   }
 
-  def getQuoteByQuoteId(sender: ActorRef, quoteId: Long): Unit = {
+  private def getQuoteByQuoteId(sender: ActorRef, quoteId: Long): Unit = {
     val query = insuranceQuotesDB.filter(_.quoteId === quoteId)
     val qResult = db.run(query.result.head)
     qResult onComplete {
       case Success(quote) => {
         val addressResp: Future[Address] = (userRepo ? GetAddress(quote.addressId)).mapTo[Address]
         addressResp onComplete {
-          case Success(address) => {
-            sender ! quote.toInsuranceQuote(address)
-          }
-          case Failure(t) => println("An error has occured: " + t.getMessage)
+          case Success(address) => sender ! quote.toInsuranceQuote(address)
+          case Failure(ex) => sender ! InsuranceQueryFailed(ex)
         }
       }
-      case Failure(t) => println("An error has occured: " + t.getMessage)
+      case Failure(ex) => ex match {
+          case _: NoSuchElementException => sender ! InsuranceQuoteNotFound
+          case _ => sender ! InsuranceQueryFailed(ex)
+        }
     }
   }
 
-  private def createQuote(sender: ActorRef, userId: Long): Unit = {
+  private def createQuote(sender: ActorRef, commandId: String, userId: Long): Unit = {
     val userResp: Future[User] = (userRepo ? GetUser(userId)).mapTo[User]
     userResp onComplete {
       case Success(user) => {
@@ -73,17 +74,17 @@ class InsuranceQuotingService extends Actor with ActorLogging {
             val qResult = db.run(newQuote)
             qResult onComplete {
               case Success(newQuoteId) => sender ! newQuoteId
-              case Failure(t) => println("An error has occured: " + t.getMessage)
+              case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
             }
           }
-          case Failure(t) => println("An error has occured: " + t.getMessage)
+          case Failure(ex) => sender ! AddressNotFound
         }
       }
-      case Failure(t) => println("An error has occured: " + t.getMessage)
+      case Failure(ex) => sender ! UserNotFound
     }
   }
 
-  def generateQuote(user: User, address: Address): InsuranceQuote = {
+  private def generateQuote(user: User, address: Address): InsuranceQuote = {
     InsuranceQuote(user.userId.get,
       Random.nextDouble(),
       s"Quote for new address $address for the user ${user.surname}, ${user.name}",

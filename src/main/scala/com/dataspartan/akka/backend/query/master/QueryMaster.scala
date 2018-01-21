@@ -21,10 +21,10 @@ class QueryMaster extends Timers with Actor with ActorLogging {
   override def receive: Receive = route
 
   def route: Receive = {
-    case msg: UserRepoMsg =>
+    case msg: UserQuery =>
       log.info("Routing to UserRepository")
       userRepoRouter forward msg
-    case msg: InsuranceServiceMsg =>
+    case msg: InsuranceQuery =>
       log.info("Routing to InsuranceService")
       insuranceServiceRouter forward msg
     case msg => log.info(s"Unknown message: ${msg.getClass.getName}")

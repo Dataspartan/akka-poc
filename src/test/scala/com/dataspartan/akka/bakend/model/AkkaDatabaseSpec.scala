@@ -14,6 +14,7 @@ import slick.jdbc.H2Profile.api._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Success
+//import scala.concurrent.ExecutionContext.Implicits.global
 
 class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     with Matchers
@@ -43,7 +44,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     val userRepo = system.actorOf(UserRepository.props)
 
     val future = userRepo ? GetUsers
-    Await.result(future, 500 millis)
+    Await.result(future, timeout.duration)
     assert(future.isCompleted && future.value.contains(Success(Seq.empty[User])))
   }
 
@@ -52,8 +53,8 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     val userRepo = system.actorOf(UserRepository.props)
 
     val future = userRepo ? GetUser(0L)
-    Await.result(future, 500 millis)
-    assert(future.isCompleted && future.value.contains(Success(Option.empty[User])))
+    Await.result(future, timeout.duration)
+    assert(future.isCompleted && future.value.contains(Success(UserNotFound)))
   }
 }
 

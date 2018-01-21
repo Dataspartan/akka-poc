@@ -13,6 +13,7 @@ import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.model.{InsuranceQuotingService, QuoteNotificator, UserRepository}
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote
+import com.dataspartan.akka.backend.entities.UserEntities.User
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -20,21 +21,29 @@ import scala.reflect._
 
 object ChangeAddressProtocol {
 
-  case class ChangeAddress(commandId: String, userId: Long, newAddress: Address) extends StartingCommand {
+  case class ChangeAddress(override val commandId: String, userId: Long, newAddress: Address) extends StartingCommand {
     override def getProps(workerRef: ActorRef): Props =
       ChangeAddressWorkerExecutor.props(workerRef, commandId)
   }
 
-  case class NewAddress(address: Address)
+  case class NewUser(override val commandId: String, user: User) extends Command
+  case class NewUserFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
+
+  case class NewAddress(override val commandId: String, address: Address) extends Command
+  case class NewAddressFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
+
   case class ChangeAddressResult(override val description: String) extends ActionResult
-  case class QuoteInsurance(userId: Long)
+  case class QuoteInsurance(override val commandId: String, userId: Long) extends Command
+  case class QuoteInsuranceFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
   case class QuoteInsuranceResult(override val description: String, insuranceQuote: InsuranceQuote) extends ActionResult
   case class NotifyQuote()
   case class EndWork()
 
-  case class ChangeAddressAccepted(commandId: String, result: ActionResult) extends CommandAccepted
+  case class ChangeAddressAccepted(override val commandId: String, override val result: ActionResult) extends CommandAccepted
 
-  case class ChangeAddressEnd(commandId: String) extends CommandEnd
+  case class ChangeAddressEnd(override val commandId: String) extends CommandEnd
+
+  case class ChangeAddressFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
 }
 
 object ChangeAddressWorkerExecutor {
@@ -108,7 +117,7 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
     case Event(res: ChangeAddressResult, data) =>
       log.info("received ChangeAddressResult response in state {}", stateName)
       workerRef ! ChangeAddressAccepted(commandId, res)
-      insuranceService ! QuoteInsurance(data.userId.get)
+      insuranceService ! QuoteInsurance(commandId, data.userId.get)
       goto(QuotingInsurance)
     case Event(StateTimeout, _) =>
       stop(Failure(s"Timeout request in state $stateName"))
@@ -121,7 +130,7 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       goto(Ended) applying InsuranceQuoteComplete(res.insuranceQuote)
     case Event(StateTimeout, data) =>
       log.info(s"Timeout request in state $stateName")
-      insuranceService ! QuoteInsurance(data.userId.get)
+      insuranceService ! QuoteInsurance(commandId, data.userId.get)
       stay
   }
 
