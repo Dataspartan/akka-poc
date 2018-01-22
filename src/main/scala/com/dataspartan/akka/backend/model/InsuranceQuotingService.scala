@@ -68,7 +68,7 @@ class InsuranceQuotingService extends Actor with ActorLogging {
         val addressResp: Future[Address] = (userRepo ? GetAddress(user.addressId.get)).mapTo[Address]
         addressResp onComplete {
           case Success(address) => {
-            val insuranceQuote = generateQuote(user, address)
+            val insuranceQuote = InsuranceQuoteDBFactory.generateQuote(user, address)
             val newQuote = (insuranceQuotesDB returning insuranceQuotesDB.map(_.quoteId)) +=
               InsuranceQuoteDBFactory.fromInsuranceQuote(insuranceQuote)
             val qResult = db.run(newQuote)
@@ -77,17 +77,10 @@ class InsuranceQuotingService extends Actor with ActorLogging {
               case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
             }
           }
-          case Failure(ex) => sender ! AddressNotFound
+          case Failure(ex) => sender ! ex
         }
       }
-      case Failure(ex) => sender ! UserNotFound
+      case Failure(ex) => sender ! ex
     }
-  }
-
-  private def generateQuote(user: User, address: Address): InsuranceQuote = {
-    InsuranceQuote(user.userId.get,
-      Random.nextDouble(),
-      s"Quote for new address $address for the user ${user.surname}, ${user.name}",
-      address)
   }
 }

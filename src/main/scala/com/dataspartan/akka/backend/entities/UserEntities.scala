@@ -36,7 +36,7 @@ object UserEntities {
     def addressId = column[Option[Long]]("ADDRESS_ID")
 
     def address = foreignKey("ADDRESS_FK", addressId, AddressEntities.addressesDB)(_.addressId.?,
-      onUpdate = ForeignKeyAction.Cascade, onDelete = ForeignKeyAction.Cascade)
+      onUpdate = ForeignKeyAction.NoAction, onDelete = ForeignKeyAction.NoAction)
 
     // the * projection (e.g. select * ...) auto-transforms the tupled
     // column values to / from a User
