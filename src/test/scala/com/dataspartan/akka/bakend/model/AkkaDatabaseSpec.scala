@@ -4,6 +4,7 @@ import akka.actor.ActorSystem
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
+import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol.NewUser
 import com.dataspartan.akka.backend.entities.AddressEntities._
 import com.dataspartan.akka.backend.entities.InsuranceEntities._
 import com.dataspartan.akka.backend.entities.UserEntities._
@@ -134,6 +135,31 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     val future = userRepo ? GetUser(users.head.userId.get)
     Await.result(future, timeout.duration)
     assert(future.isCompleted && future.value.exists(_ match {case Success(r) => r.isInstanceOf[UserQueryFailed]}))
+  }
+
+  "A UserRepository Actor" should "get address that not exist" in {
+    emptyDatabase()
+    val userRepo = system.actorOf(UserRepository.props)
+
+    val future = userRepo ? GetAddress(0L)
+    Await.result(future, timeout.duration)
+    assert(future.isCompleted && future.value.contains(Success(AddressNotFound)))
+  }
+
+  "A UserRepository Actor" should "get address" in {
+    val userRepo = system.actorOf(UserRepository.props)
+
+    val future = userRepo ? GetAddress(addresses.head.addressId.get)
+    Await.result(future, timeout.duration)
+    assert(future.isCompleted && future.value.contains(Success(addresses.head)))
+  }
+
+  "A UserRepository Actor" should "create user" in {
+    val userRepo = system.actorOf(UserRepository.props)
+    val user = User("login", "name", "surname")
+    val future = userRepo ? NewUser("comId" , user)
+    Await.result(future, timeout.duration)
+    assert(future.isCompleted && future.value.exists(_ match {case Success(r) => r.isInstanceOf[Long]}))
   }
 }
 
