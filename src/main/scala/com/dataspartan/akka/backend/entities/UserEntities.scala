@@ -1,6 +1,5 @@
 package com.dataspartan.akka.backend.entities
 
-import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import slick.jdbc.H2Profile.api._
 
 

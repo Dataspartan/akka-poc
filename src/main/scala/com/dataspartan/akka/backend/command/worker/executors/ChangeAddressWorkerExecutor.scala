@@ -5,7 +5,7 @@ import akka.cluster.pubsub.{DistributedPubSub, DistributedPubSubMediator}
 import akka.persistence.SaveSnapshotSuccess
 import akka.persistence.fsm.PersistentFSM
 import akka.persistence.fsm.PersistentFSM.{FSMState, Failure}
-import com.dataspartan.akka.backend.command.CommandProtocol._
+import com.dataspartan.akka.backend.command.CommandProtocol.{Command, _}
 import com.dataspartan.akka.backend.command.MasterWorkerProtocol
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressWorkerExecutor._
@@ -27,9 +27,11 @@ object ChangeAddressProtocol {
   }
 
   case class NewUser(override val commandId: String, user: User) extends Command
+  case class NewUserCreated(override val commandId: String, userId: Long) extends CommandEnd
   case class NewUserFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
 
   case class NewAddress(override val commandId: String, address: Address) extends Command
+  case class NewAddressCreated(override val commandId: String, addressId: Long) extends CommandEnd
   case class NewAddressFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
 
   case class ChangeAddressResult(override val description: String) extends ActionResult

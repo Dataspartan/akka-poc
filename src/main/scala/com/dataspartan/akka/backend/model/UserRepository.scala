@@ -103,7 +103,7 @@ class UserRepository extends Actor with ActorLogging {
     val qResult =  db.run(newUser)
 
     qResult onComplete {
-      case Success(newUserId) => sender ! newUserId
+      case Success(newUserId) => sender ! NewUserCreated(commandId, newUserId)
       case Failure(ex) => sender ! NewUserFailed(commandId, ex)
     }
   }
@@ -112,7 +112,7 @@ class UserRepository extends Actor with ActorLogging {
     val newAddress = (addressesDB returning  addressesDB.map(_.addressId)) += AddressDBFactory.fromAddress(address)
     val qResult =  db.run(newAddress)
     qResult onComplete {
-      case Success(newAddressId) => sender ! newAddressId
+      case Success(newAddressId) => sender ! NewAddressCreated(commandId, newAddressId)
       case Failure(ex) => sender ! NewAddressFailed(commandId, ex)
     }
   }
