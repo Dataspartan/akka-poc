@@ -25,6 +25,7 @@ object ChangeAddressProtocol {
     override def getProps(workerRef: ActorRef): Props =
       ChangeAddressWorkerExecutor.props(workerRef, commandId)
   }
+  case class ChangeAddressResult(override val description: String) extends ActionResult
 
   case class NewUser(override val commandId: String, user: User) extends Command
   case class NewUserCreated(override val commandId: String, userId: Long) extends CommandEnd
@@ -34,7 +35,7 @@ object ChangeAddressProtocol {
   case class NewAddressCreated(override val commandId: String, addressId: Long) extends CommandEnd
   case class NewAddressFailed(override val commandId: String, override val error: Any) extends CommandFailed
 
-  case class ChangeAddressResult(override val description: String) extends ActionResult
+
   case class QuoteInsurance(override val commandId: String, userId: Long) extends Command
   case class QuoteInsuranceCreated(override val commandId: String, quoteId: Long) extends CommandEnd
   case class QuoteInsuranceFailed(override val commandId: String, override val error: Any) extends CommandFailed
@@ -64,6 +65,9 @@ object ChangeAddressWorkerExecutor {
     override def identifier: String = "QuotingInsurance"
   }
   case object NotifyingQuote extends ChangeAddressWorkState {
+    override def identifier: String = "NotifyingQuote"
+  }
+  case object QuotingError extends ChangeAddressWorkState {
     override def identifier: String = "NotifyingQuote"
   }
   case object Ended extends ChangeAddressWorkState {
@@ -122,6 +126,10 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       workerRef ! ChangeAddressAccepted(commandId, res)
       insuranceService ! QuoteInsurance(commandId, data.userId.get)
       goto(QuotingInsurance)
+    case Event(failure: ChangeAddressFailed, data) =>
+      log.info("received ChangeAddressFailed response in state {}", stateName)
+      workerRef ! failure
+      goto(Ended)
     case Event(StateTimeout, _) =>
       stop(Failure(s"Timeout request in state $stateName"))
   }
@@ -131,9 +139,22 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       log.info("received QuoteInsuranceResult response in state {}", stateName)
       mediator ! DistributedPubSubMediator.Publish(QuoteNotificator.ResultsTopic, res.insuranceQuote)
       goto(Ended) applying InsuranceQuoteComplete(res.insuranceQuote)
+    case Event(failure: QuoteInsuranceFailed, data) =>
+      log.info("received QuoteInsuranceFailed response in state {}", stateName)
+      goto(QuotingError)
     case Event(StateTimeout, data) =>
       log.info(s"Timeout request in state $stateName")
       insuranceService ! QuoteInsurance(commandId, data.userId.get)
+      stay
+  }
+
+  when(QuotingError)  {
+    case Event(quoteCommand: QuoteInsurance, _) =>
+      log.info("received ChangeAddressResult response in state {}", stateName)
+      insuranceService ! quoteCommand
+      goto(QuotingInsurance)
+    case Event(StateTimeout, data) =>
+      log.info(s"Timeout request in state $stateName")
       stay
   }
 

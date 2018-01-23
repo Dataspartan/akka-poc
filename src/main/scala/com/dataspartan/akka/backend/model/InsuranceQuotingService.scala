@@ -77,11 +77,11 @@ class InsuranceQuotingService extends Actor with ActorLogging {
               case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
             }
           }
-          case Success(error) => sender ! QuoteInsuranceFailed(commandId, error)
+          case Success(failure) => sender ! QuoteInsuranceFailed(commandId, failure)
           case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
         }
       }
-      case Success(error) => sender ! QuoteInsuranceFailed(commandId, error)
+      case Success(failure) => sender ! QuoteInsuranceFailed(commandId, failure)
       case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
     }
   }
