@@ -129,7 +129,7 @@ class UserRepository extends Actor with ActorLogging {
           case Failure(ex) => sender ! ChangeAddressFailed(commandId, ex)
         }
       }
-      case Success(failure) => sender ! failure
+      case Success(failure) => sender ! ChangeAddressFailed(commandId, failure)
       case Failure(ex) => sender ! ChangeAddressFailed(commandId, ex)
     }
   }

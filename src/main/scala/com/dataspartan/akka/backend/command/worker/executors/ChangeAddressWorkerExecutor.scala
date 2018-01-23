@@ -28,15 +28,16 @@ object ChangeAddressProtocol {
 
   case class NewUser(override val commandId: String, user: User) extends Command
   case class NewUserCreated(override val commandId: String, userId: Long) extends CommandEnd
-  case class NewUserFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
+  case class NewUserFailed(override val commandId: String, override val error: Any) extends CommandFailed
 
   case class NewAddress(override val commandId: String, address: Address) extends Command
   case class NewAddressCreated(override val commandId: String, addressId: Long) extends CommandEnd
-  case class NewAddressFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
+  case class NewAddressFailed(override val commandId: String, override val error: Any) extends CommandFailed
 
   case class ChangeAddressResult(override val description: String) extends ActionResult
   case class QuoteInsurance(override val commandId: String, userId: Long) extends Command
-  case class QuoteInsuranceFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
+  case class QuoteInsuranceCreated(override val commandId: String, quoteId: Long) extends CommandEnd
+  case class QuoteInsuranceFailed(override val commandId: String, override val error: Any) extends CommandFailed
   case class QuoteInsuranceResult(override val description: String, insuranceQuote: InsuranceQuote) extends ActionResult
   case class NotifyQuote()
   case class EndWork()
@@ -45,7 +46,7 @@ object ChangeAddressProtocol {
 
   case class ChangeAddressEnd(override val commandId: String) extends CommandEnd
 
-  case class ChangeAddressFailed(override val commandId: String, override val error: Throwable) extends CommandFailed
+  case class ChangeAddressFailed(override val commandId: String, override val error: Any) extends CommandFailed
 }
 
 object ChangeAddressWorkerExecutor {

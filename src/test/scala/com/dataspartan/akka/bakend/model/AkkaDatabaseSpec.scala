@@ -4,22 +4,24 @@ import akka.actor.ActorSystem
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
+import com.dataspartan.akka.backend.command.CommandProtocol.CommandFailed
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.AddressEntities._
 import com.dataspartan.akka.backend.entities.InsuranceEntities._
 import com.dataspartan.akka.backend.entities.UserEntities._
-import com.dataspartan.akka.backend.model.UserRepository
+import com.dataspartan.akka.backend.model.{InsuranceQuotingService, UserRepository}
 import com.dataspartan.akka.backend.query.QueryProtocol._
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FlatSpecLike, Matchers}
 import org.scalatest.concurrent.ScalaFutures
-import org.scalatest.time.{Millis, Span}
+import org.scalatest.Inside
+import org.scalatest.time.{Millis, Seconds, Span}
 import slick.jdbc.H2Profile.api._
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 import scala.language.postfixOps
-import scala.concurrent.ExecutionContext.Implicits.global
+
 
 object AkkaDatabaseSpec {
   val addresses = Seq(Address("25", "High Street", "Waltham Forest", "Great London", "E17 7FD", Some(1L)),
@@ -34,13 +36,14 @@ object AkkaDatabaseSpec {
 
   val userTest = User("login", "name", "surname")
 
-  val insuranceQuotes = Seq(InsuranceQuoteDBFactory.generateQuote(users.head, addresses.head),
-    InsuranceQuoteDBFactory.generateQuote(users(1), addresses(1)))
+  val insuranceQuotes = Seq(InsuranceQuoteDBFactory.generateQuote(users.head, addresses.head).copy(quoteId = Some(1L)),
+    InsuranceQuoteDBFactory.generateQuote(users(1), addresses(1)).copy(quoteId = Some(2L)))
 }
 
 class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     with ScalaFutures
     with Matchers
+    with Inside
     with FlatSpecLike
     with BeforeAndAfterAll
     with BeforeAndAfterEach {
@@ -49,6 +52,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
   def this() = this(ActorSystem("AkkaDatabaseSpec"))
   val db = Database.forConfig("h2mem1")
   val userRepo = system.actorOf(UserRepository.props)
+  val insuranceService = system.actorOf(InsuranceQuotingService.props)
   val comId = "comId"
 
   def createSchemas(): Unit ={
@@ -98,7 +102,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
   }
 
   implicit def timeout: Timeout = 1 second
-  implicit val scalaFuturesConfig: PatienceConfig =  PatienceConfig(timeout=scaled(Span(500, Millis)))
+  implicit override def patienceConfig: PatienceConfig =  PatienceConfig(timeout=scaled(Span(500, Millis)))
 
   "UserRepository Actor" should "get the empty user list" in {
       emptyDatabase()
@@ -122,7 +126,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     future.futureValue shouldBe users.head
   }
 
-  "A UserRepository Actor" should "get user with database crash" in {
+  "A UserRepository Actor" should "get user error" in {
     dropSchemas()
     val future = userRepo ? GetUser(users.head.userId.get)
     future.futureValue shouldBe a [UserQueryFailed]
@@ -162,9 +166,76 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     futureAddress.futureValue shouldBe addressTest.copy(addressId=Some(newAddressResponse.addressId))
   }
 
-  "A UserRepository Actor" should "create address crash" in {
+  "A UserRepository Actor" should "create address error" in {
     dropSchemas()
     val future = userRepo ? NewAddress(comId, addressTest)
     future.futureValue shouldBe a [NewAddressFailed]
+  }
+
+  "A UserRepository Actor" should "change address in user with address" in {
+    val userId = users.head.userId
+    val userLogin = users.head.login
+    val userName = users.head.name
+    val userSurname = users.head.surname
+    val future = userRepo ? ChangeAddress(comId, userId.get, addressTest)
+    future.futureValue shouldBe a [ChangeAddressResult]
+    val futureUser = userRepo ? GetUser(userId.get)
+    val changedUser: User = futureUser.futureValue.asInstanceOf[User]
+    changedUser should matchPattern { case User(`userLogin`, `userName`, `userSurname`, `userId`, Some(_)) => }
+    val futureAddress = userRepo ? GetAddress(changedUser.addressId.get)
+    futureAddress.futureValue shouldBe addressTest.copy(addressId = changedUser.addressId)
+  }
+
+  "A UserRepository Actor" should "change address in user without address" in {
+    val userId = users(3).userId
+    val userLogin = users(3).login
+    val userName = users(3).name
+    val userSurname = users(3).surname
+    val future = userRepo ? ChangeAddress(comId, userId.get, addressTest)
+    future.futureValue shouldBe a [ChangeAddressResult]
+    val futureUser = userRepo ? GetUser(userId.get)
+    val changedUser: User = futureUser.futureValue.asInstanceOf[User]
+    changedUser should matchPattern { case User(`userLogin`, `userName`, `userSurname`, `userId`, Some(_)) => }
+    val futureAddress = userRepo ? GetAddress(changedUser.addressId.get)
+    futureAddress.futureValue shouldBe addressTest.copy(addressId = changedUser.addressId)
+  }
+
+  "A InsuranceQuotingService Actor" should "get insurance quote" in {
+    val future = insuranceService ? GetInsuranceQuote(insuranceQuotes.head.quoteId.get)
+    future.futureValue shouldBe insuranceQuotes.head
+  }
+
+  "A InsuranceQuotingService Actor" should "get insurance quote that not exist" in {
+    val future = insuranceService ? GetInsuranceQuote(0L)
+    future.futureValue shouldBe InsuranceQuoteNotFound
+  }
+
+  "A InsuranceQuotingService Actor" should "create new quote" in {
+    implicit def timeout: Timeout = 15 seconds
+    implicit def patienceConfig: PatienceConfig =  PatienceConfig(timeout=scaled(Span(20, Seconds)), interval = scaled(Span(5, Seconds)))
+    val userT = users.head
+    val addressT = addresses.head
+    val future = insuranceService ? QuoteInsurance(comId, userT.userId.get)
+    future.futureValue shouldBe a [QuoteInsuranceCreated]
+    val quoteCreated: QuoteInsuranceCreated = future.futureValue.asInstanceOf[QuoteInsuranceCreated]
+    val futureQuote = insuranceService ? GetInsuranceQuote(quoteCreated.quoteId)
+    val expectedResult = InsuranceQuoteDBFactory.generateQuote(userT, addressT).copy(quoteId = Some(quoteCreated.quoteId))
+
+    inside(futureQuote.futureValue) { case InsuranceQuote(userId, quantity, description, address, quoteId)=>
+      userId shouldBe expectedResult.userId
+      quantity should (be > 0.0 and be <= 1000.0)
+      description shouldBe expectedResult.description
+      address shouldBe addressT
+      quoteId shouldBe expectedResult.quoteId
+    }
+  }
+
+  "A InsuranceQuotingService Actor" should "create new quote error" in {
+    dropSchemas()
+    implicit def timeout: Timeout = 15 seconds
+    implicit def patienceConfig: PatienceConfig =  PatienceConfig(timeout=scaled(Span(20, Seconds)), interval = scaled(Span(5, Seconds)))
+    val userT = users.head
+    val future = insuranceService ? QuoteInsurance(comId, userT.userId.get)
+    future.futureValue shouldBe a [QuoteInsuranceFailed]
   }
 }

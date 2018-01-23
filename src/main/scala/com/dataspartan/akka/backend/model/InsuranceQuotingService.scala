@@ -13,7 +13,7 @@ import slick.jdbc.H2Profile.api._
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.postfixOps
-import scala.util.{Failure, Random, Success}
+import scala.util.{Failure, Success}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.dataspartan.akka.backend.entities.AddressEntities._
@@ -62,25 +62,27 @@ class InsuranceQuotingService extends Actor with ActorLogging {
   }
 
   private def createQuote(sender: ActorRef, commandId: String, userId: Long): Unit = {
-    val userResp: Future[User] = (userRepo ? GetUser(userId)).mapTo[User]
+    val userResp: Future[Any] = userRepo ? GetUser(userId)
     userResp onComplete {
-      case Success(user) => {
-        val addressResp: Future[Address] = (userRepo ? GetAddress(user.addressId.get)).mapTo[Address]
+      case Success(user: User) => {
+        val addressResp: Future[Any] = (userRepo ? GetAddress(user.addressId.get))
         addressResp onComplete {
-          case Success(address) => {
+          case Success(address: Address) => {
             val insuranceQuote = InsuranceQuoteDBFactory.generateQuote(user, address)
             val newQuote = (insuranceQuotesDB returning insuranceQuotesDB.map(_.quoteId)) +=
               InsuranceQuoteDBFactory.fromInsuranceQuote(insuranceQuote)
             val qResult = db.run(newQuote)
             qResult onComplete {
-              case Success(newQuoteId) => sender ! newQuoteId
+              case Success(newQuoteId) => sender ! QuoteInsuranceCreated(commandId, newQuoteId)
               case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
             }
           }
-          case Failure(ex) => sender ! ex
+          case Success(error) => sender ! QuoteInsuranceFailed(commandId, error)
+          case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
         }
       }
-      case Failure(ex) => sender ! ex
+      case Success(error) => sender ! QuoteInsuranceFailed(commandId, error)
+      case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
     }
   }
 }

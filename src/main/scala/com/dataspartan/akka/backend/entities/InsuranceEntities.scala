@@ -23,7 +23,7 @@ object InsuranceEntities {
 
     def generateQuote(user: User, address: Address): InsuranceQuote = {
       InsuranceQuote(user.userId.get,
-        Random.nextDouble(),
+        Random.nextDouble()*1000,
         s"Quote for new address $address for the user ${user.surname}, ${user.name}",
         address)
     }
