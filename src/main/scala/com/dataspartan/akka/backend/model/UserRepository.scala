@@ -121,7 +121,7 @@ class UserRepository extends Actor with ActorLogging {
     val addressIdResp: Future[Any] = self ? NewAddress(commandId, address)
 
     addressIdResp onComplete {
-      case Success(addressId: Long) => {
+      case Success(NewAddressCreated(_, addressId)) => {
         val userUpdate = usersDB.filter(_.userId === userId).map(_.addressId).update(Some(addressId))
         val qResult = db.run(userUpdate)
         qResult onComplete {
