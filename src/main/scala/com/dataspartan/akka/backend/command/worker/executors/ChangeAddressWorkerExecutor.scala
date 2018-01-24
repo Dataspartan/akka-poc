@@ -122,10 +122,10 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       workerRef ! ChangeAddressAccepted(commandId, res)
       insuranceService ! QuoteInsurance(commandId, data.userId.get)
       goto(QuotingInsurance)
-//    case Event(failure: ChangeAddressFailed, data) =>
-//      log.info("received ChangeAddressFailed response in state {}", stateName)
-//      workerRef ! failure
-//      goto(Ended)
+    case Event(failure: Status.Failure, _) =>
+      log.info("received Failure response in state {}", stateName)
+      workerRef ! failure
+      goto(Ended)
     case Event(StateTimeout, _) =>
       stop(Failure(s"Timeout request in state $stateName"))
   }
@@ -135,24 +135,25 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       log.info("received QuoteInsuranceResult response in state {}", stateName)
       mediator ! DistributedPubSubMediator.Publish(QuoteNotificator.ResultsTopic, res)
       goto(Ended) applying InsuranceQuoteComplete(res)
-//    case Event(failure: QuoteInsuranceFailed, data) =>
-//      log.info("received QuoteInsuranceFailed response in state {}", stateName)
-//      goto(QuotingError)
+    case Event(failure: Status.Failure, data) =>
+      log.info("received Failure response in state {}", stateName)
+      //TODO: publish error
+      goto(QuotingError)
     case Event(StateTimeout, data) =>
       log.info(s"Timeout request in state $stateName")
       insuranceService ! QuoteInsurance(commandId, data.userId.get)
       stay
   }
 
-//  when(QuotingError)  {
-//    case Event(quoteCommand: QuoteInsurance, _) =>
-//      log.info("received ChangeAddressResult response in state {}", stateName)
-//      insuranceService ! quoteCommand
-//      goto(QuotingInsurance)
-//    case Event(StateTimeout, data) =>
-//      log.info(s"Timeout request in state $stateName")
-//      stay
-//  }
+  when(QuotingError)  {
+    case Event(quoteCommand: QuoteInsurance, _) =>
+      log.info("received ChangeAddressResult response in state {}", stateName)
+      insuranceService ! quoteCommand
+      goto(QuotingInsurance)
+    case Event(StateTimeout, _) =>
+      log.info(s"Timeout request in state $stateName")
+      stay
+  }
 
 //  when(NotifyingQuote) {
 //    case Event(StateTimeout, _) =>
