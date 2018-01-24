@@ -1,12 +1,12 @@
 package com.dataspartan.akka.backend.model
 
-import java.util.{NoSuchElementException, UUID}
-
+import java.util.NoSuchElementException
 import akka.actor._
 import com.dataspartan.akka.backend.entities.AddressEntities.Address
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.AddressEntities._
 import com.dataspartan.akka.backend.entities.UserEntities._
+import com.dataspartan.akka.backend.model.ModelExceptions._
 import slick.jdbc.H2Profile.api._
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -24,6 +24,7 @@ object UserRepository {
 
 class UserRepository extends Actor with ActorLogging {
   import slick.lifted.Query
+
 
   implicit val executionContext: ExecutionContext = context.system.dispatcher
   implicit val db: Database = Database.forConfig("h2mem1")
@@ -61,7 +62,7 @@ class UserRepository extends Actor with ActorLogging {
 
     qResult onComplete {
       case Success(users) => sender ! users
-      case Failure(ex) => sender ! UserQueryFailed(ex)
+      case Failure(ex) => sender ! Status.Failure(DataAccessException(ex.getMessage, ex))
     }
   }
 
@@ -80,8 +81,8 @@ class UserRepository extends Actor with ActorLogging {
     qResult onComplete {
       case Success(user) => sender ! user
       case Failure(ex) => ex match {
-        case _: NoSuchElementException => sender ! UserNotFound
-        case _ => sender ! UserQueryFailed(ex)
+        case _: NoSuchElementException => sender ! Status.Failure(InstanceNotFoundException(cause = ex))
+        case _ => sender ! Status.Failure(DataAccessException(ex.getMessage, ex))
       }
     }
   }
@@ -92,8 +93,8 @@ class UserRepository extends Actor with ActorLogging {
     qResult onComplete {
       case Success(address) => sender ! address
       case Failure(ex) => ex match {
-        case _: NoSuchElementException => sender ! AddressNotFound
-        case _ => sender ! UserQueryFailed(ex)
+        case _: NoSuchElementException => sender ! Status.Failure(InstanceNotFoundException(cause = ex))
+        case _ => sender ! Status.Failure(DataAccessException(ex.getMessage, ex))
       }
     }
   }
@@ -104,7 +105,7 @@ class UserRepository extends Actor with ActorLogging {
 
     qResult onComplete {
       case Success(newUserId) => sender ! NewUserCreated(commandId, newUserId)
-      case Failure(ex) => sender ! NewUserFailed(commandId, ex)
+      case Failure(ex) => sender ! Status.Failure(DataAccessException(ex.getMessage, ex))
     }
   }
 
@@ -113,7 +114,7 @@ class UserRepository extends Actor with ActorLogging {
     val qResult =  db.run(newAddress)
     qResult onComplete {
       case Success(newAddressId) => sender ! NewAddressCreated(commandId, newAddressId)
-      case Failure(ex) => sender ! NewAddressFailed(commandId, ex)
+      case Failure(ex) => sender ! Status.Failure(DataAccessException(ex.getMessage, ex))
     }
   }
 
@@ -125,12 +126,11 @@ class UserRepository extends Actor with ActorLogging {
         val userUpdate = usersDB.filter(_.userId === userId).map(_.addressId).update(Some(addressId))
         val qResult = db.run(userUpdate)
         qResult onComplete {
-          case Success(numRows) => sender ! ChangeAddressResult(s"Address updated for User $userId")
-          case Failure(ex) => sender ! ChangeAddressFailed(commandId, ex)
+          case Success(_) => sender ! ChangeAddressResult(s"Address updated for User $userId")
+          case Failure(ex) => sender ! Status.Failure(ex)
         }
       }
-      case Success(failure) => sender ! ChangeAddressFailed(commandId, failure)
-      case Failure(ex) => sender ! ChangeAddressFailed(commandId, ex)
+      case Failure(ex) => sender ! Status.Failure(ex)
     }
   }
 }

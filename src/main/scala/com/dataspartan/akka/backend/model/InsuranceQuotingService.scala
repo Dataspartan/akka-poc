@@ -3,7 +3,7 @@ package com.dataspartan.akka.backend.model
 import java.util.NoSuchElementException
 import java.util.concurrent.ThreadLocalRandom
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props, Status}
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.InsuranceEntities._
 import com.dataspartan.akka.backend.query.QueryProtocol
@@ -18,6 +18,7 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.dataspartan.akka.backend.entities.AddressEntities._
 import com.dataspartan.akka.backend.entities.UserEntities.User
+import com.dataspartan.akka.backend.model.ModelExceptions.{DataAccessException, InstanceNotFoundException}
 
 object InsuranceQuotingService {
   def props: Props = Props[InsuranceQuotingService]
@@ -51,38 +52,34 @@ class InsuranceQuotingService extends Actor with ActorLogging {
         val addressResp: Future[Address] = (userRepo ? GetAddress(quote.addressId)).mapTo[Address]
         addressResp onComplete {
           case Success(address) => sender ! quote.toInsuranceQuote(address)
-          case Failure(ex) => sender ! InsuranceQueryFailed(ex)
+          case Failure(ex) => Status.Failure(ex)
         }
       }
       case Failure(ex) => ex match {
-          case _: NoSuchElementException => sender ! InsuranceQuoteNotFound
-          case _ => sender ! InsuranceQueryFailed(ex)
-        }
+        case _: NoSuchElementException => sender ! Status.Failure(InstanceNotFoundException(cause = ex))
+        case _ => Status.Failure(DataAccessException(ex.getMessage, ex))
+      }
     }
   }
 
   private def createQuote(sender: ActorRef, commandId: String, userId: Long): Unit = {
     val userResp: Future[Any] = userRepo ? GetUser(userId)
     userResp onComplete {
-      case Success(user: User) => {
-        val addressResp: Future[Any] = (userRepo ? GetAddress(user.addressId.get))
+      case Success(user: User) =>
+        val addressResp: Future[Any] = userRepo ? GetAddress(user.addressId.get)
         addressResp onComplete {
-          case Success(address: Address) => {
+          case Success(address: Address) =>
             val insuranceQuote = InsuranceQuoteDBFactory.generateQuote(user, address)
             val newQuote = (insuranceQuotesDB returning insuranceQuotesDB.map(_.quoteId)) +=
               InsuranceQuoteDBFactory.fromInsuranceQuote(insuranceQuote)
             val qResult = db.run(newQuote)
             qResult onComplete {
               case Success(newQuoteId) => sender ! QuoteInsuranceCreated(commandId, newQuoteId)
-              case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
+              case Failure(ex) => sender ! Status.Failure(DataAccessException(ex.getMessage, ex))
             }
-          }
-          case Success(failure) => sender ! QuoteInsuranceFailed(commandId, failure)
-          case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
+          case Failure(ex) => sender ! Status.Failure(ex)
         }
-      }
-      case Success(failure) => sender ! QuoteInsuranceFailed(commandId, failure)
-      case Failure(ex) => sender ! QuoteInsuranceFailed(commandId, ex)
+      case Failure(ex) => sender ! Status.Failure(ex)
     }
   }
 }

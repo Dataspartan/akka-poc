@@ -4,11 +4,11 @@ import akka.actor.ActorSystem
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
-import com.dataspartan.akka.backend.command.CommandProtocol.CommandFailed
 import com.dataspartan.akka.backend.command.worker.executors.ChangeAddressProtocol._
 import com.dataspartan.akka.backend.entities.AddressEntities._
 import com.dataspartan.akka.backend.entities.InsuranceEntities._
 import com.dataspartan.akka.backend.entities.UserEntities._
+import com.dataspartan.akka.backend.model.ModelExceptions._
 import com.dataspartan.akka.backend.model.{InsuranceQuotingService, UserRepository}
 import com.dataspartan.akka.backend.query.QueryProtocol._
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FlatSpecLike, Matchers}
@@ -115,10 +115,16 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     future.futureValue shouldBe users
   }
 
+  "UserRepository Actor" should "produce an error getting the user list" in {
+    dropSchemas()
+    val future = userRepo ? GetUsers
+    whenReady(future.failed) { ex => ex shouldBe a [DataAccessException] }
+  }
+
   "A UserRepository Actor" should "get user that not exist" in {
     emptyDatabase()
     val future = userRepo ? GetUser(0L)
-    future.futureValue shouldBe UserNotFound
+    whenReady(future.failed) { ex => ex shouldBe a [InstanceNotFoundException] }
   }
 
   "A UserRepository Actor" should "get user" in {
@@ -129,13 +135,13 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
   "A UserRepository Actor" should "get user error" in {
     dropSchemas()
     val future = userRepo ? GetUser(users.head.userId.get)
-    future.futureValue shouldBe a [UserQueryFailed]
+    whenReady(future.failed) { ex => ex shouldBe a [DataAccessException] }
   }
 
   "A UserRepository Actor" should "get address that not exist" in {
     emptyDatabase()
     val future = userRepo ? GetAddress(0L)
-    future.futureValue shouldBe AddressNotFound
+    whenReady(future.failed) { ex => ex shouldBe a [InstanceNotFoundException] }
   }
 
   "A UserRepository Actor" should "get address" in {
@@ -155,7 +161,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     val future1 = userRepo ? NewUser(comId, userTest)
     future1.futureValue shouldBe a [NewUserCreated]
     val future2 = userRepo ? NewUser(comId , userTest)
-    future2.futureValue shouldBe a [NewUserFailed]
+//    future2.futureValue shouldBe a [NewUserFailed]
   }
 
   "A UserRepository Actor" should "create address" in {
@@ -169,7 +175,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
   "A UserRepository Actor" should "create address error" in {
     dropSchemas()
     val future = userRepo ? NewAddress(comId, addressTest)
-    future.futureValue shouldBe a [NewAddressFailed]
+    whenReady(future.failed) { ex => ex shouldBe a [DataAccessException] }
   }
 
   "A UserRepository Actor" should "change address in user with address" in {
@@ -200,6 +206,16 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     futureAddress.futureValue shouldBe addressTest.copy(addressId = changedUser.addressId)
   }
 
+  "A UserRepository Actor" should "change address error" in {
+    dropSchemas()
+    val userId = users(3).userId
+    val userLogin = users(3).login
+    val userName = users(3).name
+    val userSurname = users(3).surname
+    val future = userRepo ? ChangeAddress(comId, userId.get, addressTest)
+    whenReady(future.failed) { ex => ex shouldBe a [DataAccessException] }
+  }
+
   "A InsuranceQuotingService Actor" should "get insurance quote" in {
     val future = insuranceService ? GetInsuranceQuote(insuranceQuotes.head.quoteId.get)
     future.futureValue shouldBe insuranceQuotes.head
@@ -207,7 +223,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
 
   "A InsuranceQuotingService Actor" should "get insurance quote that not exist" in {
     val future = insuranceService ? GetInsuranceQuote(0L)
-    future.futureValue shouldBe InsuranceQuoteNotFound
+    whenReady(future.failed) { ex => ex shouldBe a [InstanceNotFoundException] }
   }
 
   "A InsuranceQuotingService Actor" should "create new quote" in {
@@ -236,6 +252,6 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     implicit def patienceConfig: PatienceConfig =  PatienceConfig(timeout=scaled(Span(20, Seconds)), interval = scaled(Span(5, Seconds)))
     val userT = users.head
     val future = insuranceService ? QuoteInsurance(comId, userT.userId.get)
-    future.futureValue shouldBe a [QuoteInsuranceFailed]
+    whenReady(future.failed) { ex => ex shouldBe a [DataAccessException] }
   }
 }

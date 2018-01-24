@@ -4,7 +4,7 @@ import java.util.UUID
 
 import akka.actor.SupervisorStrategy.{Restart, Stop}
 import akka.actor._
-import com.dataspartan.akka.backend.command.CommandProtocol.{CommandFailed, StartingCommand}
+import com.dataspartan.akka.backend.command.CommandProtocol.StartingCommand
 import com.dataspartan.akka.backend.command.MasterWorkerProtocol._
 //import scala.concurrent.duration._
 import com.dataspartan.akka.backend.command.CommandProtocol.{Command, CommandAccepted, CommandEnd}
@@ -47,11 +47,6 @@ class Worker extends Actor with Timers with ActorLogging {
     case _: CommandEnd =>
       log.debug("Command is complete")
       commandMasterProxy ! WorkIsDone(command.commandId)
-
-    case failure: CommandFailed =>
-      log.debug("Command is Failed")
-      currentSender.get ! failure
-      commandMasterProxy ! WorkFailed(command.commandId)
 
     case command: Command  =>
       log.info("Got Command: {}", command)
