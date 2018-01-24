@@ -14,10 +14,12 @@ import com.dataspartan.akka.backend.model.{InsuranceQuotingService, QuoteNotific
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote
 import com.dataspartan.akka.backend.entities.UserEntities.User
+import com.dataspartan.akka.backend.query.QueryProtocol.GetInsuranceQuote
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.reflect._
+import akka.pattern.ask
 
 object ChangeAddressProtocol {
 
@@ -70,11 +72,11 @@ object ChangeAddressWorkerExecutor {
 
   sealed trait ChangeAddressDomainEvent
   case class AddressChanged(userId: Long, newAddress: Address) extends ChangeAddressDomainEvent
-  case class InsuranceQuoteComplete(insuranceQuote: InsuranceQuote) extends ChangeAddressDomainEvent
+  case class InsuranceQuoteComplete(insuranceQuote: QuoteInsuranceCreated) extends ChangeAddressDomainEvent
 
 
   def emptyChangeAddressData = ChangeAddressData(None, None, None)
-  case class ChangeAddressData(userId: Option[Long], address: Option[Address], insuranceQuote: Option[InsuranceQuote])
+  case class ChangeAddressData(userId: Option[Long], address: Option[Address], insuranceQuoteId: Option[Long])
 }
 
 class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extends Actor
@@ -100,7 +102,7 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
         changeAddressData copy (userId = Some(userId), address = Some(newAddress))
       case InsuranceQuoteComplete(insuranceQuote) =>
         log.info("apply InsuranceQuoteComplete")
-        changeAddressData copy (insuranceQuote = Some(insuranceQuote))
+        changeAddressData copy (insuranceQuoteId = Some(insuranceQuote.quoteId))
     }
   }
 
@@ -129,10 +131,10 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
   }
 
   when(QuotingInsurance, stateTimeout = 30 seconds)  {
-    case Event(res: QuoteInsuranceResult, _) =>
+    case Event(res: QuoteInsuranceCreated, _) =>
       log.info("received QuoteInsuranceResult response in state {}", stateName)
-      mediator ! DistributedPubSubMediator.Publish(QuoteNotificator.ResultsTopic, res.insuranceQuote)
-      goto(Ended) applying InsuranceQuoteComplete(res.insuranceQuote)
+      mediator ! DistributedPubSubMediator.Publish(QuoteNotificator.ResultsTopic, res)
+      goto(Ended) applying InsuranceQuoteComplete(res)
 //    case Event(failure: QuoteInsuranceFailed, data) =>
 //      log.info("received QuoteInsuranceFailed response in state {}", stateName)
 //      goto(QuotingError)
@@ -142,15 +144,15 @@ class ChangeAddressWorkerExecutor(workerRef: ActorRef, commandId: String) extend
       stay
   }
 
-  when(QuotingError)  {
-    case Event(quoteCommand: QuoteInsurance, _) =>
-      log.info("received ChangeAddressResult response in state {}", stateName)
-      insuranceService ! quoteCommand
-      goto(QuotingInsurance)
-    case Event(StateTimeout, data) =>
-      log.info(s"Timeout request in state $stateName")
-      stay
-  }
+//  when(QuotingError)  {
+//    case Event(quoteCommand: QuoteInsurance, _) =>
+//      log.info("received ChangeAddressResult response in state {}", stateName)
+//      insuranceService ! quoteCommand
+//      goto(QuotingInsurance)
+//    case Event(StateTimeout, data) =>
+//      log.info(s"Timeout request in state $stateName")
+//      stay
+//  }
 
 //  when(NotifyingQuote) {
 //    case Event(StateTimeout, _) =>

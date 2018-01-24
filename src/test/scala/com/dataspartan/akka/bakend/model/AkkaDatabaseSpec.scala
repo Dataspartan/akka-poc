@@ -1,6 +1,6 @@
 package com.dataspartan.akka.bakend.model
 
-import akka.actor.ActorSystem
+import akka.actor.{ActorRef, ActorSystem}
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
@@ -51,8 +51,8 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
 
   def this() = this(ActorSystem("AkkaDatabaseSpec"))
   val db = Database.forConfig("h2mem1")
-  val userRepo = system.actorOf(UserRepository.props)
-  val insuranceService = system.actorOf(InsuranceQuotingService.props)
+  val userRepo: ActorRef = system.actorOf(UserRepository.props)
+  val insuranceService: ActorRef = system.actorOf(InsuranceQuotingService.props)
   val comId = "comId"
 
   def createSchemas(): Unit ={
@@ -161,7 +161,7 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
     val future1 = userRepo ? NewUser(comId, userTest)
     future1.futureValue shouldBe a [NewUserCreated]
     val future2 = userRepo ? NewUser(comId , userTest)
-//    future2.futureValue shouldBe a [NewUserFailed]
+    whenReady(future2.failed) { ex => ex shouldBe a [DataAccessException] }
   }
 
   "A UserRepository Actor" should "create address" in {
@@ -209,9 +209,6 @@ class AkkaDatabaseSpec(_system: ActorSystem) extends TestKit(_system)
   "A UserRepository Actor" should "change address error" in {
     dropSchemas()
     val userId = users(3).userId
-    val userLogin = users(3).login
-    val userName = users(3).name
-    val userSurname = users(3).surname
     val future = userRepo ? ChangeAddress(comId, userId.get, addressTest)
     whenReady(future.failed) { ex => ex shouldBe a [DataAccessException] }
   }
