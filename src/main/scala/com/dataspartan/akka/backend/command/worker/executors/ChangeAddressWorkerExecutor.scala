@@ -14,12 +14,10 @@ import com.dataspartan.akka.backend.model.{InsuranceQuotingService, QuoteNotific
 import com.dataspartan.akka.backend.entities.GeneralEntities.ActionResult
 import com.dataspartan.akka.backend.entities.InsuranceEntities.InsuranceQuote
 import com.dataspartan.akka.backend.entities.UserEntities.User
-import com.dataspartan.akka.backend.query.QueryProtocol.GetInsuranceQuote
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.reflect._
-import akka.pattern.ask
 
 object ChangeAddressProtocol {
 
